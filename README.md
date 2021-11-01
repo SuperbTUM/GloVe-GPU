@@ -6,11 +6,11 @@ The goal of the project is to re-implement GloVe representation with heterogeneo
 
 In the first step, with either CUDA or OpenCL, the project is expected to achieve parallelization in co-occurrence matrix, gradient update and loss calculation in one single epoch. The baseline (CPU numpy implementation) will take more than 30 seconds to complete.
 
-In the second step, with either CUDA or OpenCL, the project is expected to achieve more complicated network parallelization. For n-gram dataset, we intend to have n outputs at a time. Assuming there is a three-layer network with embedding, hidden and output layer. The shape of embedding layer is (vocab_size, context_length * embedding_dim), the shape of hidden layer is (hidden_dim, ) and the shape of output_layer is (context_length * vocab_size, ). We apply sigmoid activation between hidden layer and output layer and Softmax activation after output layer. The loss function is replaced by cross entropy loss. There are three baselines in this implementation.
+In the second step, with either CUDA or OpenCL, the project is expected to achieve more complicated network parallelization. For n-gram dataset, we intend to have n outputs at a time. Assuming there is a three-layer network with embedding, hidden and output layer. The shape of embedding layer is (vocab_size, context_length * embedding_dim), the shape of hidden layer is (hidden_dim, ) and the shape of output_layer is (context_length * vocab_size, ). We apply sigmoid activation between hidden layer and output layer and Softmax activation after output layer. The loss function is replaced by cross entropy loss. There are three baselines in this implementation. (epoch=10)
 
 | Methodology     | numpy in CPU (Intel i7, 4 core) | PyTorch in CPU | PyTorch in GPU (Tesla P100) |
 | --------------- | ------------------------------- | -------------- | --------------------------- |
-| Time in seconds | ≥ 300                           | approx. 250    | approx. 170                 |
+| Time in seconds | ≥ 300                           | approx. 200    | approx. 160 (ave 15%) occupation|
 
 In this case, in addition to what we should have done in the first step, we need to make full use of shared memory to do reduction since there is a Softmax operation. The core implementation will focus on parallelization of forward and back propagation of the network.
 

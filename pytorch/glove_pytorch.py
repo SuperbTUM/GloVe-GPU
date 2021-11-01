@@ -1,3 +1,5 @@
+from abc import ABC
+
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -5,6 +7,14 @@ import numpy as np
 import pickle
 from tqdm import tqdm
 import time
+
+
+class ModelApply(torch.autograd.Function):
+    def forward(self, input_, *args, **kwargs):
+        pass
+
+    def backward(self, grad_output, *args, **kwargs):
+        return grad_output
 
 
 class Model(nn.Module):
@@ -28,12 +38,14 @@ class Model(nn.Module):
                 nn.init.normal_(m.weight.data, std=0.01)
 
     def forward(self, x):
-        emb = torch.zeros((x.shape[0], self.embedding_dim * self.context_len))
+        emb = torch.zeros((x.shape[0], self.embedding_dim * self.context_len), requires_grad=True)
         for i in range(self.context_len):
-            emb[:, self.embedding_dim * i: (i+1) * self.embedding_dim] = self.embedding(x)[:, i, :]
+            emb.data[:, self.embedding_dim * i: (i+1) * self.embedding_dim] = self.embedding(x)[:, i, :]
         hid = self.hidden(emb)
         hid_ac = self.hidden_activated(hid)
         out = self.output(hid_ac)
+        max_along_dim = out.max(dim=1).values.view(-1, 1)
+        out -= max_along_dim
         shape_out = out.shape
         out = out.reshape(-1, shape_out[1] // self.vocab_size, self.vocab_size)
         out_ac = self.output_activated(out)
@@ -43,7 +55,7 @@ class Model(nn.Module):
 class GloVeDataset(Dataset):
     def __init__(self, data):
         super(GloVeDataset, self).__init__()
-        self.train_inputs = data["train_inputs"]
+        self.train_inputs = data
 
     def __len__(self):
         if isinstance(self.train_inputs, np.ndarray):
@@ -65,7 +77,7 @@ class CELoss(nn.Module):
         if self.reduction == "sum":
             return -(target_batch * torch.log(output_activated + 1e-6)).sum()
         elif self.reduction == "mean":
-            return -(target_batch * torch.log(output_activated + 1e-6)).sum() / target_batch.shape[0]
+            return -(target_batch * torch.log(output_activated)).sum() / target_batch.shape[0]
 
 
 def sample_input_mask(batch_size, context_length):
@@ -94,22 +106,46 @@ def indicator_matrix(input_masked, mask_zero=True):
     return torch.Tensor(target_batch)
 
 
+def load_pretrained_model(path):
+    pre_model = pickle.load(open(path, "rb"))
+    model = Model()
+    state_dict = model.state_dict()
+    state_dict["embedding.weight"] = torch.from_numpy(pre_model["word_embedding_weights"])
+    state_dict["hidden.weight"] = torch.from_numpy(pre_model["embed_to_hid_weights"])
+    state_dict["hidden.bias"] = torch.from_numpy(pre_model["hid_bias"])
+    state_dict["output.weight"] = torch.from_numpy(pre_model["hid_to_output_weights"])
+    state_dict["output.bias"] = torch.from_numpy(pre_model["output_bias"])
+    model.load_state_dict(state_dict)
+    return model
+
+
+def load_model(pretrained=False, path=None, vocab_size=251):
+    if pretrained:
+        if path:
+            return load_pretrained_model(path)
+        else:
+            raise FileExistsError("file not exists!")
+    else:
+        return Model(vocab_size)
+
+
 if __name__ == "__main__":
     start = time.time()
-    epochs = 2
+    epochs = 10
     batch_size = 100
-    data = pickle.load(open("data.pk", "rb"))
+    data = pickle.load(open("../data.pk", "rb"))
     vocab_size = len(data["vocab"])
     data_inputs = data["train_inputs"]
-    context_length = data["train_inputs"].shape[1]
+    num_samples, context_length = data_inputs.shape
     mask = sample_input_mask(batch_size, context_length)
-    model = Model(vocab_size)  # .cuda()
+    model = load_model(pretrained=True, path="../partially_trained.pk", vocab_size=vocab_size)  # .cuda()
     optimizer = torch.optim.SGD(model.parameters(), lr=.1, momentum=.9)
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=.5)
+    num_batches = num_samples // batch_size
     losses = []
     for epoch in range(epochs):
         loss_avg = 0.
-        dataloader = DataLoader(GloVeDataset(data), batch_size=batch_size, shuffle=True,
+        dataloader = DataLoader(GloVeDataset(data_inputs), batch_size=batch_size, shuffle=True,
                                 num_workers=4, pin_memory=True)
         for sample in tqdm(dataloader):
             with torch.no_grad():
@@ -121,11 +157,11 @@ if __name__ == "__main__":
             output = model(input_masked)
             loss = CELoss(reduction="mean")(input_masked_expand, output)
             loss.backward()
-            loss_avg += loss.detach().numpy()
+            loss_avg += loss.float().detach().numpy()
             nn.utils.clip_grad_norm_(model.parameters(), 10.0)
             optimizer.step()
             lr_scheduler.step()
-        losses.append(loss_avg / (data_inputs.shape[0] // batch_size))
+        losses.append(np.float32(loss_avg / num_batches))
     end = time.time()
     print("PyTorch CPU implementation time is {:.3f} seconds.".format(end-start))
-    print("loss ", losses)
+    print("loss", losses)
