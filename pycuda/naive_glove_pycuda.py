@@ -1,18 +1,20 @@
+import pickle
+import time
+from math import ceil
+
+import numpy as np
 import pycuda.autoinit
-from skcuda import cublas, linalg
-from pycuda.compiler import SourceModule
+import pycuda.cumath as cumath
 import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
-import pycuda.cumath as cumath
-from math import ceil
-import numpy as np
-import time
-import pickle
+from pycuda.compiler import SourceModule
+from skcuda import linalg
 
 kernels = SourceModule(
     """
     #include <stdio.h>
     #define shared_size 1024
+    #define TILE_DIM 32
     __global__ void co_occurrence(const int* __restrict__ grams, float* co_occurence_matrix, int size_corpus, int num_grams, int length){
         const int i = threadIdx.x + blockIdx.x * blockDim.x;
         int bias = i/(num_grams-1);
@@ -34,11 +36,50 @@ kernels = SourceModule(
         int i = threadIdx.x + blockDim.x * blockIdx.x;
         if(i < size)  matrix[i] *= matrix[i];
     }
+    
+    __global__ void matrix_multi(float* A, float* B, float* C, int ARows, int ACols, int BRows,
+    int BCols, int CRows, int CCols)
+    {
+        float CValue = 0;
+        int ty = threadIdx.x;
+        int tx = threadIdx.y;
+        int by = blockIdx.y;
+        int bx = blockIdx.x;
+        int Row = by * TILE_DIM + ty;
+        int Col = bx * TILE_DIM + tx;
+    
+        __shared__ float As[TILE_DIM][TILE_DIM];
+        __shared__ float Bs[TILE_DIM][TILE_DIM];
+    
+        for (int k = 0; k < (TILE_DIM + ACols - 1) / TILE_DIM; k++) {
+    
+             if (k * TILE_DIM + tx < ACols && Row < ARows)
+                 As[ty][tx] = A[Row*ACols + k * TILE_DIM + tx];
+             else
+                 As[ty][tx] = 0.0;
+    
+             if (k * TILE_DIM + ty < BRows && Col < BCols)
+                 Bs[ty][tx] = B[(k * TILE_DIM + ty) * BCols + Col];
+             else
+                 Bs[ty][tx] = 0.0;
+    
+             __syncthreads();
+    
+             for (int n = 0; n < TILE_DIM; ++n)
+                 CValue += As[ty][n] * Bs[n][tx];
+    
+             __syncthreads();
+        }
+    
+        if (Row < CRows && Col < CCols)
+            C[((by * blockDim.y + ty) * CCols) +
+               (bx * blockDim.x) + tx] = CValue;
+    }
     """
 )
 
-
 atomic_add = kernels.get_function("co_occurrence")
+matrix_multi = kernels.get_function("matrix_multi")
 matrix_add = kernels.get_function("matrix_add")
 matrix_pow = kernels.get_function("matrix_pow")
 stream1 = cuda.Stream(flags=1)
@@ -53,37 +94,17 @@ column_vector_indicator = gpuarray.GPUArray(shape=(V, 1), dtype=np.float32).fill
 
 
 def matrixMulti(*args):
-    transa = 'n'
-    transb = 'n'
-    alpha = 1
-    beta = 0
-    handles = list()
     C_list = list()
-    for mat1, mat2 in args:
-        #  create a stream
-        # print("create a stream: cur_stream = cuda.Stream()")
-        cur_stream = cuda.Stream(flags=1)
-        # print("create a handle: handles.append(cublas.cublasCreate())")
-        handles.append(cublas.cublasCreate())
-        # print("use handles[-1] to call: cublas.cublasSetStream(handles[-1], cur_stream)")
-        h = handles[-1]
-        cublas.cublasSetStream(h, cur_stream.handle)
-        # cublas.cublasSetStream(cublas_handle, stream.handle)
-        # print("cublas call in this stream", args[0], args[1])
-        m = mat1.shape[0]
-        n = mat2.shape[1]
-        k = mat1.shape[1]
-        B_gpu = mat1
-        A_gpu = mat2
-        C_gpu = gpuarray.zeros(shape=(m, n), dtype=np.float32)
-        cublas.cublasSgemm(h, transa, transb, n, m, k, alpha, A_gpu.gpudata, n, B_gpu.gpudata, k, beta, C_gpu.gpudata,
-                           n)
-        # cur_stream.synchronize()
-        C_list.append(C_gpu)
-    for j in range(len(handles)):
-        handle = handles[j]
-        # print("destroy handle: cublas.cublasDestroy(handle)")
-        cublas.cublasDestroy(handle)
+    for i, (mat1, mat2) in enumerate(args):
+        ARow, ACol = mat1.shape
+        BRow, BCol = mat2.shape
+        CRow, CCol = ARow, BCol
+        mat3 = gpuarray.zeros(shape=(CRow, CCol), dtype=np.float32)
+        matrix_multi(mat1, mat2, mat3, np.int32(ARow), np.int32(ACol), np.int32(BRow),
+                     np.int32(BCol), np.int32(CRow), np.int32(CCol),
+                     block=(32, 32, 1), grid=(ceil(max(CRow, CCol) / 32), ceil(max(CRow, CCol) / 32), 1),
+                     stream=streams[i])
+        C_list.append(mat3)
     return C_list
 
 
@@ -133,27 +154,33 @@ def init(V, d):
 
 def grad(W, W_tilde, b, b_tilde, co_occurence):
     V = co_occurence.shape[0]
-    the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator), (column_vector_indicator, linalg.transpose(b_tilde)))
+    the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
+                                      (column_vector_indicator, linalg.transpose(b_tilde)))
     for i in range(1, len(the_loss_components)):
         matrix_add(the_loss_components[0], the_loss_components[i], np.int32(V * V),
                    block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
     matrix_add(the_loss_components[0], -co_occurence, np.int32(V * V),
-                   block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
+               block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
     the_loss = the_loss_components[0]
-    grad_W = 2 * matrixMulti((the_loss, W_tilde))[0]
-    grad_W_tilde = 2 * linalg.transpose(matrixMulti((linalg.transpose(W), the_loss))[0])
-    grad_b = 2 * linalg.transpose(matrixMulti((row_vector_indicator, the_loss))[0])
-    grad_b_tilde = 2 * linalg.transpose(matrixMulti((row_vector_indicator, the_loss))[0])
+    grad_W, grad_W_tilde, grad_b, grad_b_tilde = matrixMulti((the_loss, W_tilde), (linalg.transpose(W), the_loss),
+                                                             (row_vector_indicator, the_loss),
+                                                             (row_vector_indicator, the_loss))
+    grad_W = 2 * grad_W
+    grad_W_tilde = 2 * linalg.transpose(grad_W_tilde)
+    grad_b = 2 * linalg.transpose(grad_b)
+    grad_b_tilde = 2 * linalg.transpose(grad_b_tilde)
     return grad_W, grad_W_tilde, grad_b, grad_b_tilde
 
 
 def loss(W, W_tilde, b, b_tilde, co_occurence):
     V = co_occurence.shape[0]
-    the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator), (column_vector_indicator, linalg.transpose(b_tilde)))
+    the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
+                                      (column_vector_indicator, linalg.transpose(b_tilde)))
     for i in range(1, len(the_loss_components)):
-        matrix_add(the_loss_components[0], the_loss_components[i], np.int32(V * V), block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
+        matrix_add(the_loss_components[0], the_loss_components[i], np.int32(V * V), block=(1024, 1, 1),
+                   grid=(ceil(V * V / 1024), 1, 1))
     matrix_add(the_loss_components[0], -co_occurence, np.int32(V * V),
-                   block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
+               block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
     the_loss = the_loss_components[0]
     matrix_pow(the_loss, np.int32(V * V), block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
     loss_sum = gpuarray.sum(the_loss, dtype=np.float32)
@@ -218,5 +245,4 @@ if __name__ == '__main__':
     start = time.time()
     final_W = main(data)
     end = time.time()
-    print("GPU execution time is {:.2f} seconds.".format(end-start))  # 1.5 seconds.
-
+    print("GPU execution time is {:.2f} seconds.".format(end - start))  # 1.5 seconds.
