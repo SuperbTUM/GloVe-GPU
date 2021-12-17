@@ -8,7 +8,7 @@ import pycuda.cumath as cumath
 import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
-from skcuda import linalg
+from skcuda import linalg, cublas
 
 kernels = SourceModule(
     """
@@ -92,19 +92,45 @@ linalg.init()
 row_vector_indicator = gpuarray.GPUArray(shape=(1, V), dtype=np.float32).fill(1, stream=streams[0])
 column_vector_indicator = gpuarray.GPUArray(shape=(V, 1), dtype=np.float32).fill(1, stream=streams[1])
 
+h1 = cublas.cublasCreate()
+cublas.cublasSetStream(h1, streams[0].handle)
+h2 = cublas.cublasCreate()
+cublas.cublasSetStream(h2, streams[1].handle)
+h3 = cublas.cublasCreate()
+cublas.cublasSetStream(h3, streams[2].handle)
+h4 = cublas.cublasCreate()
+cublas.cublasSetStream(h4, streams[3].handle)
+handles = (h1, h2, h3, h4)
+
+# deprecated
+# def matrixMulti(*args):
+#     C_list = list()
+#     for i, (mat1, mat2) in enumerate(args):
+#         ARow, ACol = mat1.shape
+#         BRow, BCol = mat2.shape
+#         CRow, CCol = ARow, BCol
+#         mat3 = gpuarray.zeros(shape=(CRow, CCol), dtype=np.float32)
+#         matrix_multi(mat1, mat2, mat3, np.int32(ARow), np.int32(ACol), np.int32(BRow),
+#                      np.int32(BCol), np.int32(CRow), np.int32(CCol),
+#                      block=(32, 32, 1), grid=(ceil(max(CRow, CCol) / 32), ceil(max(CRow, CCol) / 32), 1),
+#                      stream=streams[i])
+#         C_list.append(mat3)
+#     return C_list
+
 
 def matrixMulti(*args):
+    alpha = 1
+    beta = 0
+    transa = 'n'
+    transb = 'n'
     C_list = list()
     for i, (mat1, mat2) in enumerate(args):
-        ARow, ACol = mat1.shape
-        BRow, BCol = mat2.shape
-        CRow, CCol = ARow, BCol
-        mat3 = gpuarray.zeros(shape=(CRow, CCol), dtype=np.float32)
-        matrix_multi(mat1, mat2, mat3, np.int32(ARow), np.int32(ACol), np.int32(BRow),
-                     np.int32(BCol), np.int32(CRow), np.int32(CCol),
-                     block=(32, 32, 1), grid=(ceil(max(CRow, CCol) / 32), ceil(max(CRow, CCol) / 32), 1),
-                     stream=streams[i])
-        C_list.append(mat3)
+        m = mat1.shape[0]
+        n = mat2.shape[1]
+        k = mat1.shape[1]
+        C_gpu = gpuarray.zeros((m,n), dtype=np.float32)
+        cublas.cublasSgemm(handles[i], transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta, C_gpu.gpudata, n)
+        C_list.append(C_gpu)
     return C_list
 
 
@@ -245,4 +271,6 @@ if __name__ == '__main__':
     start = time.time()
     final_W = main(data)
     end = time.time()
-    print("GPU execution time is {:.2f} seconds.".format(end - start))  # 1.5 seconds.
+    print("GPU execution time is {:.2f} seconds.".format(end - start))  # 0.81 seconds on average of 20 times.
+    for h in handles:
+        cublas.cublasDestroy(h)
