@@ -2,7 +2,7 @@
 
 There are many times we are more willing to leverage deep learning frameworks, for instance, PyTorch or Tensorflow, to train neural networks. Thanks to sophisticated design, both PyTorch and Tensorflow have integrated cuda and cudnn in its framework. With a simple switch, the network can be trained or tested via GPU. However, autograd is not always fast and reliable enough when it comes to complicated condition branches or iteration branches in network design.
 
-The goal of the project is to re-implement GloVe representation with heterogeneous computing. The amount of data is approx. 320,000 with approx. 250 unique words. The naive implementation includes co-occurrence, embedding. The training process leverages data shuffle, batch gradient descent with momentum, and step learning rate scheduler. Final clustering is visualized with T-SNE package. 
+The goal of the project is to re-implement GloVe representation with heterogeneous computing. Dataset comes from Department of Computer Science, University of Toronto. The amount of data is approx. 375,000 with 251 unique words. The naive implementation includes co-occurrence, embedding. The training process leverages data shuffle, batch gradient descent with momentum, and step learning rate scheduler. Final clustering is visualized with T-SNE package. 
 
 In the first step, with either CUDA or OpenCL, the project is expected to achieve parallelization in co-occurrence matrix, gradient update and loss calculation in one single epoch. The baseline (CPU numpy implementation) will take more than 30 seconds to complete.
 
@@ -15,4 +15,18 @@ In the second step, with either CUDA or OpenCL, the project is expected to achie
 In this case, in addition to what we should have done in the first step, we need to make full use of shared memory to do reduction since there is a Softmax operation. The core implementation will focus on parallelization of forward and back propagation of the network.
 
 Overall, the project will concentrate on matrix-to-matrix calculation, matrix-to-vector calculation, reduction, and etc. The project will also try to figure out how to minimize running time by reducing memory transfer frequency.
+
+
+
+# Results
+
+We have achieved acceleration of naive GloVe representation. With Cublas and streams, the training time is 0.81 seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
+
+We also have achieved acceleration of neural network version of GloVe. The inference time is 15.62 seconds on average. compared with 38 seconds in numpy implementation.
+
+
+
+# Contact us
+
+Mingzhe: mh4116@columbia.edu
 

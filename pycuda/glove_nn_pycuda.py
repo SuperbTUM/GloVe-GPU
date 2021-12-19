@@ -6,63 +6,99 @@ import pycuda.gpuarray as gpuarray
 import pycuda.cumath as cumath
 import numpy as np
 from math import ceil
-from skcuda import linalg
+from skcuda import linalg, cublas
 import time
 import pickle
 
 kernels = SourceModule(
-    """
-    #define blockSize blockDim.x
-    __device__ void warpReduce(volatile float* vector, int tid){
-        if(blockSize >= 32) vector[tid] += vector[tid+32];
-        if(blockSize >= 16) vector[tid] += vector[tid+16];
-        if(blockSize >= 8) vector[tid] += vector[tid+8];
-        if(blockSize >= 4) vector[tid] += vector[tid+4];
-        if(blockSize >= 2) vector[tid] += vector[tid+2];
-        if(blockSize >= 1) vector[tid] += vector[tid+1];
-    } 
-    
-    __global__ void matrix_reduction(float* matrix, float* reduction_matrix){
-        int tid = threadIdx.x;
-        int bid = blockIdx.x;
-        int i = tid + bid * blockSize * 2;
-        __shared__ float vector[1024];
-        vector[tid] = matrix[i] + matrix[i+blockSize];
-        __syncthreads();
-        if(blockSize >= 512){
-            if(tid < 512){
-                vector[tid] += vector[tid + 512];
-            }
-            __syncthreads();
-        }
-        if(blockSize >= 256){
-            if(tid < 256){
-                vector[tid] += vector[tid + 256];
-            } 
-            __syncthreads(); 
-        }
-        if(blockSize >= 128){
-            if(tid < 128){
-                vector[tid] += vector[tid + 128];
-            }
-            __syncthreads();
-        }
-        if(blockSize >= 64){
-            if(tid < 64){
-                vector[tid] += vector[tid + 64];
-            } 
-            __syncthreads();
-        }
-        if(tid < 32) warpReduce(vector, tid);
-        if(tid == 0){
-            reduction_matrix[bid] = vector[0];
-        }
-    }
-    
-    """
-)
+"""
+__device__ void warpReduce(volatile float* vector, int tid){
+    if(blockDim.x >= 64) vector[tid] += vector[tid+32];
+    if(blockDim.x >= 32) vector[tid] += vector[tid+16];
+    if(blockDim.x >= 16) vector[tid] += vector[tid+8];
+    if(blockDim.x >= 8) vector[tid] += vector[tid+4];
+    if(blockDim.x >= 4) vector[tid] += vector[tid+2];
+    if(blockDim.x >= 2) vector[tid] += vector[tid+1];
+} 
 
-matrix_reduction = kernels.get_function("matrix_reduction")
+__global__ void matrix_reduction(float* matrix, float* reduction_matrix){
+    int tid = threadIdx.x;
+    int bid = blockIdx.x;
+    int i = tid + bid * blockDim.x * 2;
+    __shared__ float vector[128];
+    vector[tid] = matrix[i] + matrix[i+blockDim.x];
+    __syncthreads();
+    if(blockDim.x >= 1024){
+        if(tid < 512)  vector[tid] += vector[tid + 512];
+        __syncthreads();
+    }
+    if(blockDim.x >= 512){
+        if(tid < 256)  vector[tid] += vector[tid + 256];
+        __syncthreads(); 
+    }
+    if(blockDim.x >= 256){
+        if(tid < 128)  vector[tid] += vector[tid + 128];
+        __syncthreads();
+    }
+    if(blockDim.x >= 128){
+        if(tid < 64)  vector[tid] += vector[tid + 64];
+        __syncthreads();
+    }
+    if(tid < 32)  warpReduce(vector, tid);
+    if(tid == 0)  reduction_matrix[bid] = vector[0];
+}
+
+__device__ void warpMax(volatile float* vector, int tid){
+    if(blockDim.x >= 64) vector[tid] = (vector[tid] > vector[tid+32])? vector[tid]: vector[tid+32];
+    if(blockDim.x >= 32) vector[tid] = (vector[tid] > vector[tid+16])? vector[tid]: vector[tid+16];
+    if(blockDim.x >= 16) vector[tid] = (vector[tid] > vector[tid+8])? vector[tid]: vector[tid+8];
+    if(blockDim.x >= 8) vector[tid] = (vector[tid] > vector[tid+4])? vector[tid]: vector[tid+4];
+    if(blockDim.x >= 4) vector[tid] = (vector[tid] > vector[tid+2])? vector[tid]: vector[tid+2];
+    if(blockDim.x >= 2) vector[tid] = (vector[tid] > vector[tid+1])? vector[tid]: vector[tid+1];
+} 
+
+__global__ void find_max(float* matrix, float* outputs){
+    int tid = threadIdx.x;
+    int bid = blockIdx.x;
+    int i = tid + bid * blockDim.x * 2;
+    __shared__ float vector[512];
+    vector[tid] = (matrix[i] > matrix[i+blockDim.x])? matrix[i]: matrix[i+blockDim.x];
+    __syncthreads();
+    if(blockDim.x >= 1024){
+        if(tid < 512)  vector[tid] = (vector[tid] > vector[tid+512])? vector[tid]: vector[tid+512];
+        __syncthreads();
+    }
+    if(blockDim.x >= 512){
+        if(tid < 256)  vector[tid] = (vector[tid] > vector[tid+256])? vector[tid]: vector[tid+256];
+        __syncthreads();
+    }
+    if(blockDim.x >= 256){
+        if(tid < 128)  vector[tid] = (vector[tid] > vector[tid+128])? vector[tid]: vector[tid+128];
+        __syncthreads(); 
+    }
+    if(blockDim.x >= 128){
+        if(tid < 64)  vector[tid] = (vector[tid] > vector[tid+64])? vector[tid]: vector[tid+64];
+        __syncthreads();
+    }
+    if(tid < 32)  warpMax(vector, tid);
+    if(tid == 0)  outputs[bid] = vector[0];    
+}
+
+__global__ void matrix_addition(float* matrix, float* vector, int length){
+    int bx = blockIdx.x;
+    int tx = threadIdx.x;
+    int i = bx * blockDim.x + tx;
+    if(i < length)  matrix[i] += vector[bx];
+}
+
+__global__ void matrix_devision(float* matrix_higher, float* matrix_lower, int length){
+    int tx = threadIdx.x;
+    int bx = blockIdx.x;
+    int i = tx + bx * blockDim.x;
+    if(i < length)  matrix_higher[i] /= matrix_lower[bx];
+}
+"""
+)
 
 
 def concatenate(arrays, axis=0, allocator=None):
@@ -132,3 +168,197 @@ def customize_reduction(matrix):
     results = gpuarray.zeros((matrix.shape[0], matrix.shape[1]), dtype=np.float32)
     matrix_reduction(padded_matrix, results, block=(256 // 2, 1, 1), grid=(matrix.shape[0] * matrix.shape[1], 1, 1))
     return results
+
+
+def customize_max_finder(matrix):
+    # This matrix is of shape (B, NV)
+    padding = gpuarray.zeros((matrix.shape[0], 1024-matrix.shape[-1]), dtype=np.float32)
+    padded_matrix = concatenate((matrix, padding), axis=1)
+    results = gpuarray.zeros((matrix.shape[0], ), dtype=np.float32)
+    find_max(padded_matrix, results, block=(1024//2, 1, 1), grid=(matrix.shape[0], 1, 1))
+    return results
+
+
+def customize_matrix_add(matrix, vector):
+    matrix_addition(matrix, vector, np.int32(matrix.size), block=(matrix.shape[1], 1, 1), grid=(matrix.shape[0], 1, 1))
+    return matrix
+
+
+def customize_matrix_devision(matrix_higher, matrix_lower):
+    matrix_devision(matrix_higher, matrix_lower, np.int32(matrix_higher.size), block=(matrix_higher.shape[-1], 1, 1),
+                    grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
+    return matrix_higher
+
+
+def matrixMulti(*args):
+    alpha = 1
+    beta = 0
+    transa = 'n'
+    transb = 'n'
+    C_list = list()
+    for i, (mat1, mat2) in enumerate(args):
+        m = mat1.shape[0]
+        n = mat2.shape[1]
+        k = mat1.shape[1]
+        C_gpu = gpuarray.zeros((m,n), dtype=np.float32)
+        cublas.cublasSgemm(handles[i], transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta, C_gpu.gpudata, n)
+        C_list.append(C_gpu)
+    return C_list
+
+
+TRAIN_CONFIG = {"batch_size": 100,
+                "w_init": 0.01,
+                "hidden_dim": 128,
+                "embedding_dim": 16,
+                "learning_rate": 0.1,
+                "momentum": 0.9}
+model_location = 'partially_trained.pk'
+trained = pickle.load(open(model_location, "rb"))
+matrix_reduction = kernels.get_function("matrix_reduction")
+find_max = kernels.get_function("find_max")
+matrix_addition = kernels.get_function("matrix_addition")
+matrix_devision = kernels.get_function("matrix_devision")
+stream1 = cuda.Stream(flags=1)
+stream2 = cuda.Stream(flags=1)
+stream3 = cuda.Stream(flags=1)
+stream4 = cuda.Stream(flags=1)
+stream5 = cuda.Stream(flags=1)
+streams = (stream1, stream2, stream3, stream4, stream5)
+h1 = cublas.cublasCreate()
+cublas.cublasSetStream(h1, streams[0].handle)
+h2 = cublas.cublasCreate()
+cublas.cublasSetStream(h2, streams[1].handle)
+h3 = cublas.cublasCreate()
+cublas.cublasSetStream(h3, streams[2].handle)
+h4 = cublas.cublasCreate()
+cublas.cublasSetStream(h4, streams[3].handle)
+handles = (h1, h2, h3, h4)
+linalg.init()
+
+def logistic(y):
+    try:
+        return 1. / (1. + cumath.exp(-y))
+    except RuntimeWarning:
+        raise Exception("Overflow Encountered. Check your model!")
+
+
+class Model(object):
+    def __init__(self, batch_size, vocab_size, embedding_dim, hidden_dim, w_init, context_length):
+        # definition of hyper-parameters
+        self.batch_size = batch_size
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+        self.w_init = w_init
+        self.context_length = context_length
+        # definition of layers
+        self.embedding_layer = gpuarray.zeros((self.batch_size, self.context_length * self.embedding_dim), dtype=np.float32)
+        self.hidden_layer_activated = gpuarray.zeros((self.batch_size, self.hidden_dim), dtype=np.float32)
+
+        # definition of trainable parameters
+        embedding_weights = trained["word_embedding_weights"].astype(np.float32)
+        self.embedding_weights = cuda.register_host_memory(embedding_weights)
+        self.word_embedding_weights = gpuarray.to_gpu_async(self.embedding_weights, stream=streams[0])
+
+        hidden_weights = trained['embed_to_hid_weights'].astype(np.float32)
+        hidden_weights = cuda.register_host_memory(hidden_weights)
+        self.emb_to_hid_weights = gpuarray.to_gpu_async(hidden_weights, stream=streams[1])
+
+        hid_bias = trained['hid_bias'].astype(np.float32)
+        hid_bias = cuda.register_host_memory(hid_bias)
+        self.hid_bias = gpuarray.to_gpu_async(hid_bias, stream=streams[2])
+
+        output_weights = trained['hid_to_output_weights'].astype(np.float32)
+        output_weights = cuda.register_host_memory(output_weights)
+        self.hid_to_out_weights = gpuarray.to_gpu_async(output_weights, stream=streams[3])
+
+        output_bias = trained['output_bias'].astype(np.float32)
+        output_bias = cuda.register_host_memory(output_bias)
+        self.out_bias = gpuarray.to_gpu_async(output_bias, stream=streams[4])
+
+    def _softmax(self, y):
+        y = cumath.exp(y)
+        y_shape = y.shape
+        y = y.reshape((-1, self.context_length, self.vocab_size))
+        sum_y = customize_reduction(y)
+        y = customize_matrix_devision(y, sum_y)
+        y = y.reshape(y_shape)
+        return y
+
+    def forward(self, batch_data):
+        # word_embedding_weights_cpu = self.word_embedding_weights.get()
+        for i in range(self.context_length):
+            self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim] = \
+                gpuarray.to_gpu_async(self.embedding_weights[batch_data[:, i], :], stream=streams[i])  # NEEDS MORE WORK
+        hidden_layer = customize_matrix_add(matrixMulti((self.embedding_layer, linalg.transpose(self.emb_to_hid_weights)))[0], self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
+        self.hidden_layer_activated = logistic(hidden_layer)
+        output_layer = customize_matrix_add(matrixMulti((self.hidden_layer_activated, linalg.transpose(self.hid_to_out_weights)))[0], self.out_bias)  # (B, H) @ (H, NV) -> (B, NV)
+        max_output_layer = customize_max_finder(output_layer)
+        output_layer = customize_matrix_add(output_layer, -max_output_layer)
+        output_layer_activated = self._softmax(output_layer)
+        return output_layer_activated
+
+    def indicator_matrix(self, batch_data, mask_zero=True):
+        """
+        Generate a (B, NV)-shape masked input batch data
+        :param mask_zero:
+        :param batch_data:
+        :return:
+        """
+        batch_size, context_length = batch_data.shape
+        target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
+        targets_offset = np.repeat((np.arange(context_length) * self.vocab_size)[np.newaxis, :],
+                                   batch_size, axis=0).astype(np.int32)
+        batch_data += targets_offset
+        for c in range(context_length):
+            target_batch[np.arange(batch_size), batch_data[:, c]] = 1.
+            if mask_zero:
+                target_batch[np.arange(batch_size), targets_offset[:, c]] = 0.
+        return gpuarray.to_gpu(target_batch)
+
+    @staticmethod
+    def compute_loss(target_batch, output_activated):
+        cross_entropy = -gpuarray.sum(target_batch * cumath.log(output_activated + 1e-5))
+        return cross_entropy
+
+    def sample_input_mask(self):
+        """Samples a binary mask for the inputs of size batch_size x context_len
+        For each row, at most one element will be 1.
+        """
+        mask_idx = np.random.randint(self.context_length, size=(self.batch_size,))
+        mask = np.zeros((self.batch_size, self.context_length),
+                        dtype=np.int32)  # Convert to one hot B x N, B batch size, N context len
+        mask[np.arange(self.batch_size), mask_idx] = 1
+        return mask
+
+
+def inference():
+    data = pickle.load(open("data.pk", "rb"))
+    data_inputs = data["train_inputs"].astype(np.int32)
+    model = Model(TRAIN_CONFIG["batch_size"], len(data["vocab"]), TRAIN_CONFIG['embedding_dim'],
+                  TRAIN_CONFIG['hidden_dim'], TRAIN_CONFIG["w_init"], data_inputs.shape[1])
+    learning_rate = TRAIN_CONFIG["learning_rate"]
+    batch_size = TRAIN_CONFIG["batch_size"]
+    num_batches = data_inputs.shape[0] // batch_size
+    train_loss = 0.
+    for m in range(num_batches):
+        # Data Preparation
+        data_inputs_batch = data_inputs[m * batch_size: (m + 1) * batch_size, :]
+        mask = model.sample_input_mask()
+        input_batch_masked = data_inputs_batch * (1 - mask)  # We only zero out one word per row
+        target_batch_masked = data_inputs_batch * mask
+        target_batch = model.indicator_matrix(target_batch_masked)
+        # forward
+        output_activated = model.forward(input_batch_masked)
+        # calculate cross entropy loss
+        batch_loss = model.compute_loss(target_batch, output_activated) / batch_size
+        train_loss += batch_loss
+    return train_loss / num_batches
+
+
+if __name__ == "__main__":
+    start = time.time()
+    for i in range(10):
+        train_loss = inference()
+    end = time.time()
+    print("GPU execution time is {:.2f} seconds.".format((end - start)/10))  # 15.62 seconds, loss: 3.84
