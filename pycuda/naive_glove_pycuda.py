@@ -78,10 +78,13 @@ kernels = SourceModule(
     """
 )
 
+# define global variables
+# define kernels
 atomic_add = kernels.get_function("co_occurrence")
 matrix_multi = kernels.get_function("matrix_multi")
 matrix_add = kernels.get_function("matrix_add")
 matrix_pow = kernels.get_function("matrix_pow")
+# define streams
 stream1 = cuda.Stream(flags=1)
 stream2 = cuda.Stream(flags=1)
 stream3 = cuda.Stream(flags=1)
@@ -89,9 +92,10 @@ stream4 = cuda.Stream(flags=1)
 streams = (stream1, stream2, stream3, stream4)
 V = 251
 linalg.init()
+# define indicator
 row_vector_indicator = gpuarray.GPUArray(shape=(1, V), dtype=np.float32).fill(1, stream=streams[0])
 column_vector_indicator = gpuarray.GPUArray(shape=(V, 1), dtype=np.float32).fill(1, stream=streams[1])
-
+# define handles for cublas
 h1 = cublas.cublasCreate()
 cublas.cublasSetStream(h1, streams[0].handle)
 h2 = cublas.cublasCreate()
@@ -119,6 +123,11 @@ handles = (h1, h2, h3, h4)
 
 
 def matrixMulti(*args):
+    """
+    matrix multiplication cuda version with cublas Sgemm
+    :param args: a series of matrix pairs
+    :return: list of matrix multiplication results
+    """
     alpha = 1
     beta = 0
     transa = 'n'
@@ -141,6 +150,12 @@ def load_dataset():
 
 
 def log_cooccurence(word_data, V):
+    """
+    Counting co-occurrence in corpus
+    :param word_data: corpus in dataset
+    :param V: number of vocabs
+    :return: log co-occurrence matrix
+    """
     cooccurence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32)
     n_grams = word_data.shape[1]
     length = word_data.shape[0] * n_grams
@@ -154,6 +169,12 @@ def log_cooccurence(word_data, V):
 
 
 def init(V, d):
+    """
+    Initialization of weights and bias of each word
+    :param V: number of vocabs
+    :param d: number of embedded dims, default: 10
+    :return: initial weight and bias matrix
+    """
     base = 0.1
     W = base * np.random.normal(size=(V, d)).astype(np.float32)
     W = cuda.register_host_memory(W)
@@ -179,6 +200,15 @@ def init(V, d):
 
 
 def grad(W, W_tilde, b, b_tilde, co_occurence):
+    """
+    Calculate gradient of learnable parameters in training
+    :param W: weight of each word from left to right
+    :param W_tilde: weight of each word from right to left, in asymmetric representation, w and w_tilde are not the same
+    :param b: bias of each word from left to right
+    :param b_tilde: bias of each word from right to left
+    :param co_occurence: the co-occurrence matrix
+    :return: the gradient of each parameter
+    """
     V = co_occurence.shape[0]
     the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
                                       (column_vector_indicator, linalg.transpose(b_tilde)))
@@ -199,6 +229,15 @@ def grad(W, W_tilde, b, b_tilde, co_occurence):
 
 
 def loss(W, W_tilde, b, b_tilde, co_occurence):
+    """
+    Calculate the loss of the model
+    :param W: Same as gradient definition
+    :param W_tilde: Same as gradient definition
+    :param b: Same as gradient definition
+    :param b_tilde: Same as gradient definition
+    :param co_occurence: Same as gradient definition
+    :return: mean squared loss
+    """
     V = co_occurence.shape[0]
     the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
                                       (column_vector_indicator, linalg.transpose(b_tilde)))
@@ -218,6 +257,17 @@ def lr_scheduler(lr, epoch, drop=0.5, epoch_drop=5):
 
 
 def train(W, W_tilde, b, b_tilde, V, d, data):
+    """
+    Train the model with batch gradient descent
+    :param W: Same as gradient definition
+    :param W_tilde: Same as gradient definition
+    :param b: Same as gradient definition
+    :param b_tilde: Same as gradient definition
+    :param V: number of vocabs
+    :param d: number of embedding dim
+    :param data: corpus of the dataset
+    :return: final weights of words
+    """
     word_data = data['valid_inputs'].astype(np.int32)
     word_data_gpu = gpuarray.to_gpu(word_data)
     co_occurence_valid = log_cooccurence(word_data_gpu, V)
@@ -260,6 +310,11 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
 
 
 def main(data):
+    """
+    Call training of the model
+    :param data: dataset for training
+    :return: final weights
+    """
     V = len(data['vocab'])
     d = 10
     W, W_tilde, b, b_tilde = init(V, d)

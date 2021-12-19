@@ -13,6 +13,7 @@ import pickle
 kernels = SourceModule(
 """
 __device__ void warpReduce(volatile float* vector, int tid){
+    // avoid syncthread
     if(blockDim.x >= 64) vector[tid] += vector[tid+32];
     if(blockDim.x >= 32) vector[tid] += vector[tid+16];
     if(blockDim.x >= 16) vector[tid] += vector[tid+8];
@@ -91,7 +92,7 @@ __global__ void matrix_addition(float* matrix, float* vector, int length){
     if(i < length)  matrix[i] += vector[bx];
 }
 
-__global__ void matrix_devision(float* matrix_higher, float* matrix_lower, int length){
+__global__ void matrix_division(float* matrix_higher, float* matrix_lower, int length){
     int tx = threadIdx.x;
     int bx = blockIdx.x;
     int i = tx + bx * blockDim.x;
@@ -155,12 +156,21 @@ def concatenate(arrays, axis=0, allocator=None):
 
 
 def load_dataset():
+    """
+    load dataset
+    :return: dataset in numpy style
+    """
     data_location = 'data.pk'
     data = pickle.load(open(data_location, 'rb'))
     return data
 
 
 def customize_reduction(matrix):
+    """
+    This function is designed for matrix reduction along the last dimension
+    :param matrix: 3-d matrix waited to be summed in the last dim
+    :return: 2-d matrix after reduction
+    """
     # This matrix if of shape (B, N, V)
     assert matrix.shape[-1] == 251
     padding = gpuarray.zeros((matrix.shape[0], matrix.shape[1], 5), dtype=np.float32)
@@ -171,6 +181,11 @@ def customize_reduction(matrix):
 
 
 def customize_max_finder(matrix):
+    """
+    This function is designed to locate the maximum value of a matrix along the last dimension
+    :param matrix: 2-d matrix shape of (B, NV) where B=100, N=4, V=251 in this case
+    :return: maximum value vector
+    """
     # This matrix is of shape (B, NV)
     padding = gpuarray.zeros((matrix.shape[0], 1024-matrix.shape[-1]), dtype=np.float32)
     padded_matrix = concatenate((matrix, padding), axis=1)
@@ -180,17 +195,34 @@ def customize_max_finder(matrix):
 
 
 def customize_matrix_add(matrix, vector):
+    """
+    This function is designed to do addition of two matrices with different dims (broadcast)
+    :param matrix: higher level matrix, normally in shape (*, dim)
+    :param vector: lower level vector, normally in shape (*, )
+    :return: the addition result in shape of (*, dim)
+    """
     matrix_addition(matrix, vector, np.int32(matrix.size), block=(matrix.shape[1], 1, 1), grid=(matrix.shape[0], 1, 1))
     return matrix
 
 
-def customize_matrix_devision(matrix_higher, matrix_lower):
-    matrix_devision(matrix_higher, matrix_lower, np.int32(matrix_higher.size), block=(matrix_higher.shape[-1], 1, 1),
+def customize_matrix_division(matrix_higher, matrix_lower):
+    """
+    This function is designed to do division with two different-dims matrix (broadcast)
+    :param matrix_higher: higher level matrix, normally in shape (*, dim)
+    :param matrix_lower: lower level matrix, normally in shape (*, )
+    :return: division result in shape of (*, dim)
+    """
+    matrix_division(matrix_higher, matrix_lower, np.int32(matrix_higher.size), block=(matrix_higher.shape[-1], 1, 1),
                     grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
     return matrix_higher
 
 
 def matrixMulti(*args):
+    """
+    Same as naive gpu version
+    :param args: a series of matrix pairs
+    :return: list of multiplication results
+    """
     alpha = 1
     beta = 0
     transa = 'n'
@@ -206,24 +238,26 @@ def matrixMulti(*args):
     return C_list
 
 
+# config settings
 TRAIN_CONFIG = {"batch_size": 100,
-                "w_init": 0.01,
                 "hidden_dim": 128,
-                "embedding_dim": 16,
-                "learning_rate": 0.1,
-                "momentum": 0.9}
+                "embedding_dim": 16}
+# load trained model
 model_location = 'partially_trained.pk'
 trained = pickle.load(open(model_location, "rb"))
+# load kernel functions
 matrix_reduction = kernels.get_function("matrix_reduction")
 find_max = kernels.get_function("find_max")
 matrix_addition = kernels.get_function("matrix_addition")
-matrix_devision = kernels.get_function("matrix_devision")
+matrix_division = kernels.get_function("matrix_division")
+# define streams for asynchronization
 stream1 = cuda.Stream(flags=1)
 stream2 = cuda.Stream(flags=1)
 stream3 = cuda.Stream(flags=1)
 stream4 = cuda.Stream(flags=1)
 stream5 = cuda.Stream(flags=1)
 streams = (stream1, stream2, stream3, stream4, stream5)
+# creating handles
 h1 = cublas.cublasCreate()
 cublas.cublasSetStream(h1, streams[0].handle)
 h2 = cublas.cublasCreate()
@@ -235,6 +269,7 @@ cublas.cublasSetStream(h4, streams[3].handle)
 handles = (h1, h2, h3, h4)
 linalg.init()
 
+
 def logistic(y):
     try:
         return 1. / (1. + cumath.exp(-y))
@@ -243,13 +278,21 @@ def logistic(y):
 
 
 class Model(object):
-    def __init__(self, batch_size, vocab_size, embedding_dim, hidden_dim, w_init, context_length):
+    def __init__(self, batch_size, vocab_size, embedding_dim, hidden_dim, context_length):
+        """
+        Definition of the model, including one hidden layer and one output layer, normally these are
+        called MLP altogether
+        :param batch_size: 100 in this case
+        :param vocab_size: 251 in this case
+        :param embedding_dim: 16 in this case
+        :param hidden_dim: 128 in this case
+        :param context_length: 4 in this case
+        """
         # definition of hyper-parameters
         self.batch_size = batch_size
         self.vocab_size = vocab_size
         self.embedding_dim = embedding_dim
         self.hidden_dim = hidden_dim
-        self.w_init = w_init
         self.context_length = context_length
         # definition of layers
         self.embedding_layer = gpuarray.zeros((self.batch_size, self.context_length * self.embedding_dim), dtype=np.float32)
@@ -277,15 +320,25 @@ class Model(object):
         self.out_bias = gpuarray.to_gpu_async(output_bias, stream=streams[4])
 
     def _softmax(self, y):
+        """
+        Calculate softmax activation
+        :param y: output of output layer
+        :return: activated output
+        """
         y = cumath.exp(y)
         y_shape = y.shape
         y = y.reshape((-1, self.context_length, self.vocab_size))
         sum_y = customize_reduction(y)
-        y = customize_matrix_devision(y, sum_y)
+        y = customize_matrix_division(y, sum_y)
         y = y.reshape(y_shape)
         return y
 
     def forward(self, batch_data):
+        """
+        forward propagation of the model
+        :param batch_data: masked inputs
+        :return: final weights
+        """
         # word_embedding_weights_cpu = self.word_embedding_weights.get()
         for i in range(self.context_length):
             self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim] = \
@@ -301,9 +354,9 @@ class Model(object):
     def indicator_matrix(self, batch_data, mask_zero=True):
         """
         Generate a (B, NV)-shape masked input batch data
-        :param mask_zero:
-        :param batch_data:
-        :return:
+        :param mask_zero: if setting zeros in masked places
+        :param batch_data: masked inputs
+        :return: ground truth of loss function
         """
         batch_size, context_length = batch_data.shape
         target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
@@ -318,6 +371,12 @@ class Model(object):
 
     @staticmethod
     def compute_loss(target_batch, output_activated):
+        """
+        Used as verification of the algorithm
+        :param target_batch: ground truth
+        :param output_activated: outputs of the model
+        :return: cross entropy loss
+        """
         cross_entropy = -gpuarray.sum(target_batch * cumath.log(output_activated + 1e-5))
         return cross_entropy
 
@@ -333,11 +392,14 @@ class Model(object):
 
 
 def inference():
+    """
+    Inference with trained model
+    :return: average loss
+    """
     data = pickle.load(open("data.pk", "rb"))
     data_inputs = data["train_inputs"].astype(np.int32)
     model = Model(TRAIN_CONFIG["batch_size"], len(data["vocab"]), TRAIN_CONFIG['embedding_dim'],
-                  TRAIN_CONFIG['hidden_dim'], TRAIN_CONFIG["w_init"], data_inputs.shape[1])
-    learning_rate = TRAIN_CONFIG["learning_rate"]
+                  TRAIN_CONFIG['hidden_dim'], data_inputs.shape[1])
     batch_size = TRAIN_CONFIG["batch_size"]
     num_batches = data_inputs.shape[0] // batch_size
     train_loss = 0.
