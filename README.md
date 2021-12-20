@@ -53,7 +53,7 @@ pip3 install torch==1.10.1+cu113 torchvision==0.11.2+cu113 torchaudio===0.10.1+c
 
 Download the dataset from the link in Dataset & Checkpoint, numpy, pycuda and pytorch implementation reside in 3 separated folders, the content of folders is shown below:
 
-##### numpy folder:  
+#### numpy folder:  
 
 - naive_glove.py: naive GloVe  
 
@@ -63,7 +63,7 @@ Download the dataset from the link in Dataset & Checkpoint, numpy, pycuda and py
 
   Expected output: CPU execution time, plot of loss (loss_nn.png under the directory)
 
-##### pycuda folder:  
+#### pycuda folder:  
 - naive_glove_pycuda.py: naive GloVe  
 
   Expected output: GPU execution time
@@ -72,7 +72,7 @@ Download the dataset from the link in Dataset & Checkpoint, numpy, pycuda and py
 
   Expected output: GPU execution time
 
-##### pytorch folder:
+#### pytorch folder:
 - glove_pytorch.py: neural network version of Glove (CPU version)  
   Expected output: PyTorch CPU implementation time
 - baseline_pytorch_cuda.ipynb: neural network version of Glove (GPU version)  
