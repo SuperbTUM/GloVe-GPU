@@ -24,6 +24,36 @@ Dataset can be accessed [here](https://drive.google.com/file/d/1B8Gr9G66ZRj6lvpV
 
 Checkpoint can be accessed [here](https://drive.google.com/file/d/15Am6cbYhNBepm84h4MQtiXv8gO-N4A5A/view?usp=sharing)
 
+# Quick Start
+
+Download the dataset from the link in Dataset & Checkpoint.
+
+Code description:
+
+**numpy folder:** 
+
+naive_glove.py: naive GloVe
+expected output: CPU execution time, plot of loss (loss.png under the directory), tsne plot of words (glove.png under the directory)
+
+glove_nn.py: neural network version of GloVe
+expected output: CPU execution time, plot of loss (loss_nn.png under the dicrectory)
+
+**pycuda folder:**
+
+naive_glove_pycuda.py: naive GloVe
+expected output: GPU execution time
+
+glove_nn_pycuda.py: neural network version of GloVe
+expected output: GPU execution time
+
+**pytorch folder:**
+
+glove_pytorch.py: neural network version of Glove (CPU version)
+expected output: PyTorch CPU implementation time
+
+baseline_pytorch_cuda.ipynb: neural network version of Glove (GPU version)
+expected output: PyTorch GPU implementation time
+
 # Results
 
 We have achieved acceleration of naive GloVe representation. With Cublas and streams, the training time is 0.81 seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
