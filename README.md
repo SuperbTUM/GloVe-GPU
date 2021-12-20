@@ -25,7 +25,7 @@ Dataset can be accessed [here](https://drive.google.com/file/d/1B8Gr9G66ZRj6lvpV
 Checkpoint can be accessed [here](https://drive.google.com/file/d/15Am6cbYhNBepm84h4MQtiXv8gO-N4A5A/view?usp=sharing)
 
 # Quick Start
-Download the dataset from the link in Dataset & Checkpoint, run the code in the folling folders.
+Download the dataset from the link in Dataset & Checkpoint, run the code in the following folders.
 
 **numpy folder:**  
 naive_glove.py: naive GloVe  
