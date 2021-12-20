@@ -43,9 +43,10 @@ We also have achieved acceleration of neural network version of GloVe. The infer
 
 ## Environment
 
-Operating System: Linux 5.4  
-CUDA: 11.3  
-GPU: Tesla P100
+- Operating System: Linux 5.4  
+
+- CUDA: 11.3  
+- GPU: Tesla P100
 
 ## Installation
 
