@@ -2,11 +2,12 @@
 
 ## Contents
 
-1. [Proposal](#Proposal)
-2. [Results](#Results)
-3. [Dataset & Checkpoint](#Dataset-&-Checkpoint)
-4. [Quick Start](#Quick-Start)
-5. [Contact us](#Contact-us)
+1. [Proposal](#proposal)
+2. [Results](#results)
+3. [Dataset & Checkpoint](#dataset--checkpoint)
+3. [Installation](#Installation)
+4. [Quick Start](#quick-start)
+5. [Contact us](#contact-us)
 
 ## Proposal
 
@@ -28,7 +29,7 @@ Overall, the project will concentrate on matrix-to-matrix calculation, matrix-to
 
 ## Results
 
-We have achieved acceleration of naive GloVe representation. With Cublas and streams, the training time is 0.81 seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
+We have achieved acceleration of naive GloVe representation. With cuBLAS and streams, the training time is 0.81 seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
 
 We also have achieved acceleration of neural network version of GloVe. The inference time is 15.62 seconds on average, compared with 38 seconds in numpy implementation.
 
@@ -39,10 +40,18 @@ We also have achieved acceleration of neural network version of GloVe. The infer
 
 - Checkpoint can be accessed [here](https://drive.google.com/file/d/15Am6cbYhNBepm84h4MQtiXv8gO-N4A5A/view?usp=sharing)
 
+## Installation
+
+This project is based on numpy, pycuda, scikit-cuda and pytorch, please ensure you have installed them.
+
+```
+pip install numpy pycuda scikit-cuda
+pip3 install torch==1.10.1+cu113 torchvision==0.11.2+cu113 torchaudio===0.10.1+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+```
 
 ## Quick Start
 
-Download the dataset from the link in Dataset & Checkpoint, there are numpy, pycuda and pytorch implementation in separated folders, run the code in the following folders.
+Download the dataset from the link in Dataset & Checkpoint, numpy, pycuda and pytorch implementation reside in 3 separated folders, the content of folders is shown below:
 
 ##### numpy folder:  
 
