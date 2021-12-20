@@ -5,6 +5,7 @@
 1. [Proposal](#proposal)
 2. [Results](#results)
 3. [Dataset & Checkpoint](#dataset--checkpoint)
+3. [Environment](#environment)
 3. [Installation](#Installation)
 4. [Quick Start](#quick-start)
 5. [Contact us](#contact-us)
