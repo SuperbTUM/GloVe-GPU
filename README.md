@@ -57,16 +57,14 @@ Download the dataset from the link in Dataset & Checkpoint, the implementation w
 
 - naive_glove.py: naive GloVe  
   Expected output: CPU execution time, plot of loss (loss.png under the directory), tsne plot of words (glove.png under the directory)
-  
 - glove_nn.py: neural network version of GloVe  
-Expected output: CPU execution time, plot of loss (loss_nn.png under the directory)
+  Expected output: CPU execution time, plot of loss (loss_nn.png under the directory)
 
 #### pycuda folder:  
 - naive_glove_pycuda.py: naive GloVe  
   Expected output: GPU execution time
-  
 - glove_nn_pycuda.py: neural network version of GloVe  
-Expected output: GPU execution time
+  Expected output: GPU execution time
 
 #### pytorch folder:
 - glove_pytorch.py: neural network version of Glove (CPU version)  
