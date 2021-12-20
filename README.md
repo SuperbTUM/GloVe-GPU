@@ -4,9 +4,9 @@
 
 1. [Proposal](#Proposal)
 2. [Results](#Results)
-3. [Dataset & Checkpoint](#Dataset & Checkpoint)
-4. [Quick Start](#Quick Start)
-5. [Contact us](#Contact us)
+3. [Dataset & Checkpoint](#Dataset-&-Checkpoint)
+4. [Quick Start](#Quick-Start)
+5. [Contact us](#Contact-us)
 
 ## Proposal
 
