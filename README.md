@@ -40,13 +40,18 @@ We also have achieved acceleration of neural network version of GloVe. The infer
 
 - Checkpoint can be accessed [here](https://drive.google.com/file/d/15Am6cbYhNBepm84h4MQtiXv8gO-N4A5A/view?usp=sharing)
 
+## Environment
+
+Operating System: Linux 5.4  
+CUDA: 11.3  
+GPU: Tesla P100
+
 ## Installation
 
-This project is based on numpy, pycuda, scikit-cuda and pytorch, please ensure you have installed them.
+This project is based on numpy, pycuda, scikit-cuda and pytorch, the requirements are specified in requirements.txt, you can install them with the the following command.
 
 ```
-pip install numpy pycuda scikit-cuda
-pip3 install torch==1.10.1+cu113 torchvision==0.11.2+cu113 torchaudio===0.10.1+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+pip install -r requirements.txt
 ```
 
 ## Quick Start
