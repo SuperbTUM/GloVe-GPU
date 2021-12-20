@@ -32,26 +32,32 @@ Code description:
 
 **numpy folder:** 
 
-naive_glove.py: naive GloVe
+naive_glove.py: naive GloVe  
+
 expected output: CPU execution time, plot of loss (loss.png under the directory), tsne plot of words (glove.png under the directory)
 
-glove_nn.py: neural network version of GloVe
+glove_nn.py: neural network version of GloVe  
+
 expected output: CPU execution time, plot of loss (loss_nn.png under the dicrectory)
 
 **pycuda folder:**
 
-naive_glove_pycuda.py: naive GloVe
+naive_glove_pycuda.py: naive GloVe  
+
 expected output: GPU execution time
 
-glove_nn_pycuda.py: neural network version of GloVe
+glove_nn_pycuda.py: neural network version of GloVe  
+
 expected output: GPU execution time
 
 **pytorch folder:**
 
-glove_pytorch.py: neural network version of Glove (CPU version)
+glove_pytorch.py: neural network version of Glove (CPU version)  
+
 expected output: PyTorch CPU implementation time
 
-baseline_pytorch_cuda.ipynb: neural network version of Glove (GPU version)
+baseline_pytorch_cuda.ipynb: neural network version of Glove (GPU version)  
+
 expected output: PyTorch GPU implementation time
 
 # Results
