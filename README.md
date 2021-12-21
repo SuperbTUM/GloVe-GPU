@@ -20,9 +20,9 @@ In the first step, with either CUDA or OpenCL, the project is expected to achiev
 
 In the second step, with either CUDA or OpenCL, the project is expected to achieve more complicated network parallelization. For n-gram dataset, we intend to have n outputs at a time. Assuming there is a three-layer network with embedding, hidden and output layer. The shape of embedding layer is (vocab_size, context_length * embedding_dim), the shape of hidden layer is (hidden_dim, ) and the shape of output_layer is (context_length * vocab_size, ). We apply sigmoid activation between hidden layer and output layer and SoftMax activation after output layer. The loss function is replaced by cross entropy loss. There are three baselines in this implementation. (epoch=10)
 
-| Methodology     | numpy in CPU (Intel i7, 4 core) | PyTorch in CPU | PyTorch in GPU (Tesla P100) |
-| --------------- | ------------------------------- | -------------- | --------------------------- |
-| Time in seconds | ≥ 300                           | approx. 200    | approx. 160 (ave 15%) occupation|
+| Methodology     | numpy in CPU (Intel i7, 4 core) | PyTorch in CPU | PyTorch in GPU (Tesla P100)      |
+| --------------- | ------------------------------- | -------------- | -------------------------------- |
+| Time in seconds | ≥ 300                           | approx. 200    | approx. 160 (ave 15%) occupation |
 
 In this case, in addition to what we should have done in the first step, we need to make full use of shared memory to do reduction since there is a SoftMax operation. The core implementation will focus on parallelization of forward and back propagation of the network.
 
@@ -30,7 +30,7 @@ Overall, the project will concentrate on matrix-to-matrix calculation, matrix-to
 
 ## Results
 
-We have achieved acceleration of naive GloVe representation. With cuBLAS and streams, the training time is 0.81 seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
+We have achieved acceleration of naive GloVe representation. With cuBLAS and streams, the training time is 0.69 seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
 
 We also have achieved acceleration of neural network version of GloVe. The inference time is 15.62 seconds on average, compared with 38 seconds in numpy implementation.
 
@@ -60,23 +60,23 @@ pip install -r requirements.txt
 
 Download the dataset from the link in Dataset & Checkpoint, the implementation with numpy, pycuda and pytorch reside in 3 separated folders, as shown below:
 
-#### numpy folder:  
+#### Numpy folder  
 
-- naive_glove.py: naive GloVe  
+- `naive_glove.py`: naive GloVe  
   Expected output: CPU execution time, plot of loss (loss.png under the directory), tsne plot of words (glove.png under the directory)
-- glove_nn.py: neural network version of GloVe  
+- `glove_nn.py`: neural network version of GloVe  
   Expected output: CPU execution time, plot of loss (loss_nn.png under the directory)
 
-#### pycuda folder:  
-- naive_glove_pycuda.py: naive GloVe  
+#### Pycuda folder  
+- `naive_glove_pycuda.py`: naive GloVe  
   Expected output: GPU execution time
-- glove_nn_pycuda.py: neural network version of GloVe  
+- `glove_nn_pycuda.py`: neural network version of GloVe  
   Expected output: GPU execution time
 
-#### pytorch folder:
-- glove_pytorch.py: neural network version of Glove (CPU version)  
+#### Pytorch folder
+- `glove_pytorch.py`: neural network version of Glove (CPU version)  
   Expected output: PyTorch CPU implementation time
-- baseline_pytorch_cuda.ipynb: neural network version of Glove (GPU version)  
+- `baseline_pytorch_cuda.ipynb`: neural network version of Glove (GPU version)  
   Expected output: PyTorch GPU implementation time
 
 ## Contact us
@@ -84,4 +84,3 @@ Download the dataset from the link in Dataset & Checkpoint, the implementation w
 Mingzhe: mh4116@columbia.edu
 
 Wenpu: ww2569@columbia.edu
-
