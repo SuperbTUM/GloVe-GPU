@@ -126,7 +126,7 @@ def train():
 
     np.random.seed(1)
 
-    data = pickle.load(open("data.pk", "rb"))
+    data = pickle.load(open("../data.pk", "rb"))
     data_inputs = data["train_inputs"]
     model = Model(TRAIN_CONFIG["batch_size"], len(data["vocab"]), TRAIN_CONFIG['embedding_dim'],
                   TRAIN_CONFIG['hidden_dim'], TRAIN_CONFIG["w_init"], data_inputs.shape[1])

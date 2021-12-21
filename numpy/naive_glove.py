@@ -7,7 +7,7 @@ from sklearn.manifold import TSNE
 
 
 def load_dataset():
-    data_location = 'data.pk'
+    data_location = '../data.pk'
     data = pickle.load(open(data_location, 'rb'))
     return data
 
