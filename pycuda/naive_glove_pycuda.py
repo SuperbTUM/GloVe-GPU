@@ -143,6 +143,27 @@ def matrixMulti(*args):
     return C_list
 
 
+def matrixMultiWithSum(*args, bias=None):
+    flag = True
+    alpha = 1
+    beta = 1
+    transa = 'n'
+    transb = 'n'
+    for i, (mat1, mat2) in enumerate(args):
+        m = mat1.shape[0]
+        n = mat2.shape[1]
+        k = mat1.shape[1]
+        if bias:
+            C_gpu = bias
+            bias = None
+            flag = False
+        elif flag:
+            C_gpu = gpuarray.zeros((m,n), dtype=np.float32)
+            flag = False
+        cublas.cublasSgemm(h1, transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta, C_gpu.gpudata, n)
+    return C_gpu
+
+
 def load_dataset():
     data_location = 'data.pk'
     data = pickle.load(open(data_location, 'rb'))
@@ -209,15 +230,8 @@ def grad(W, W_tilde, b, b_tilde, co_occurence):
     :param co_occurence: the co-occurrence matrix
     :return: the gradient of each parameter
     """
-    V = co_occurence.shape[0]
-    the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
-                                      (column_vector_indicator, linalg.transpose(b_tilde)))
-    for i in range(1, len(the_loss_components)):
-        matrix_add(the_loss_components[0], the_loss_components[i], np.int32(V * V),
-                   block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
-    matrix_add(the_loss_components[0], -co_occurence, np.int32(V * V),
-               block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
-    the_loss = the_loss_components[0]
+    the_loss = matrixMultiWithSum((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
+                                  (column_vector_indicator, linalg.transpose(b_tilde)), bias=-co_occurence)
     grad_W, grad_W_tilde, grad_b, grad_b_tilde = matrixMulti((the_loss, W_tilde), (linalg.transpose(W), the_loss),
                                                              (row_vector_indicator, the_loss),
                                                              (row_vector_indicator, the_loss))
@@ -239,14 +253,8 @@ def loss(W, W_tilde, b, b_tilde, co_occurence):
     :return: mean squared loss
     """
     V = co_occurence.shape[0]
-    the_loss_components = matrixMulti((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
-                                      (column_vector_indicator, linalg.transpose(b_tilde)))
-    for i in range(1, len(the_loss_components)):
-        matrix_add(the_loss_components[0], the_loss_components[i], np.int32(V * V), block=(1024, 1, 1),
-                   grid=(ceil(V * V / 1024), 1, 1))
-    matrix_add(the_loss_components[0], -co_occurence, np.int32(V * V),
-               block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
-    the_loss = the_loss_components[0]
+    the_loss = matrixMultiWithSum((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
+                                  (column_vector_indicator, linalg.transpose(b_tilde)), bias=-co_occurence)
     matrix_pow(the_loss, np.int32(V * V), block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
     loss_sum = gpuarray.sum(the_loss, dtype=np.float32)
     return loss_sum
@@ -326,6 +334,6 @@ if __name__ == '__main__':
     start = time.time()
     final_W = main(data)
     end = time.time()
-    print("GPU execution time is {:.2f} seconds.".format(end - start))  # 0.81 seconds on average of 20 times.
+    print("GPU execution time is {:.2f} seconds.".format(end - start))  # 0.69 seconds on average of 20 times.
     for h in handles:
         cublas.cublasDestroy(h)
