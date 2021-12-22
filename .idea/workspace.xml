@@ -1,22 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/.gitignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/.name" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/GloVe_representation.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/Project_Default.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/data.pk" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/partially_trained.pk" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/numpy/glove.png" beforeDir="false" afterPath="$PROJECT_DIR$/numpy/glove.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/numpy/glove_nn.py" beforeDir="false" afterPath="$PROJECT_DIR$/numpy/glove_nn.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/numpy/loss.png" beforeDir="false" afterPath="$PROJECT_DIR$/numpy/loss.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/numpy/naive_glove.py" beforeDir="false" afterPath="$PROJECT_DIR$/numpy/naive_glove.py" afterDir="false" />
-    </list>
+    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -233,6 +218,7 @@
       <workItem from="1639946360606" duration="16000" />
       <workItem from="1640107874988" duration="1652000" />
       <workItem from="1640111856050" duration="1085000" />
+      <workItem from="1640114323136" duration="857000" />
     </task>
     <servers />
   </component>
