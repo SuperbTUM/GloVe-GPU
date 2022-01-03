@@ -220,8 +220,9 @@ def customize_matrix_division(matrix_higher, matrix_lower):
 def matrixMulti(mat1, mat2):
     """
     Same as naive gpu version
-    :param args: a series of matrix pairs
-    :return: list of multiplication results
+    :param mat1: first matrix
+    :param mat2: second matrix
+    :return: multiplication result
     """
     alpha = 1
     beta = 0
@@ -231,9 +232,57 @@ def matrixMulti(mat1, mat2):
     n = mat2.shape[1]
     k = mat1.shape[1]
     C_gpu = gpuarray.zeros((m, n), dtype=np.float32)
-    cublas.cublasSgemm(handles[0], transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta,
+    cublas.cublasSgemm(handle, transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta,
                        C_gpu.gpudata, n)
     return C_gpu
+
+
+def cublasDot(mat1, mat2, transb="N"):
+    """
+    A skcuda API for matrix dot product
+    :param mat1: first matrix
+    :param mat2: second matrix
+    :param transb: if needs transpose of second matrix
+    :return: dot product result
+    """
+    return linalg.dot(mat1, mat2, transb=transb, handle=handle)
+
+
+def copy_non_contiguous(dst, src):
+    """
+    Copy ``src`` array to ``dst`` array.
+    A gpu-array may have a non contiguous block of memory,
+    i.e. it may have substancial pitches/strides. However a cpu-array must have a contiguous block of memory.
+    All four directions are allowed.
+    """
+    assert dst.shape == src.shape, \
+        "Shapes do not match: " + str(dst.shape) + " <-> " + str(src.shape)
+
+    itemsize = np.dtype(src.dtype).itemsize
+    copy = cuda.Memcpy2D()
+
+    copy.set_src_host(src)
+    copy.set_dst_device(dst.gpudata)
+
+    if itemsize != dst.strides[1]:
+        # arrays have to be copied column by column, because there a two substantial pitches/strides
+        # which is not supported by cuda.
+        copy.src_pitch = itemsize
+        copy.dst_pitch = dst.strides[0]
+        copy.width_in_bytes = itemsize
+        copy.height = src.shape[0]
+
+        for col in range(src.shape[1]):
+            copy.src_x_in_bytes = col * itemsize
+            copy.dst_x_in_bytes = col * dst.strides[1]
+            copy(aligned=False)
+    else:
+        # both arrays have a contiguous block of memory for each row
+        copy.src_pitch = itemsize * src.shape[1]
+        copy.dst_pitch = dst.strides[0]
+        copy.width_in_bytes = itemsize * src.shape[1]
+        copy.height = src.shape[0]
+        copy(aligned=False)
 
 
 # config settings
@@ -256,19 +305,14 @@ stream4 = cuda.Stream(flags=1)
 stream5 = cuda.Stream(flags=1)
 streams = (stream1, stream2, stream3, stream4, stream5)
 # creating handles
-h1 = cublas.cublasCreate()
-cublas.cublasSetStream(h1, streams[0].handle)
-h2 = cublas.cublasCreate()
-cublas.cublasSetStream(h2, streams[1].handle)
-h3 = cublas.cublasCreate()
-cublas.cublasSetStream(h3, streams[2].handle)
-h4 = cublas.cublasCreate()
-cublas.cublasSetStream(h4, streams[3].handle)
-handles = (h1, h2, h3, h4)
+handle = cublas.cublasCreate()
 linalg.init()
 
 
 def logistic(y):
+    """
+    Function for calculating sigmoid activation.
+    """
     try:
         return 1. / (1. + cumath.exp(-y))
     except RuntimeWarning:
@@ -345,15 +389,15 @@ class Model(object):
         """
         # word_embedding_weights_cpu = self.word_embedding_weights.get()
         for i in range(self.context_length):
-            self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim] = \
-                gpuarray.to_gpu(self.embedding_weights[batch_data[:, i], :])  # NEEDS MORE WORK
-        hidden_layer = customize_matrix_add(
-            matrixMulti(self.embedding_layer, linalg.transpose(self.emb_to_hid_weights)),
-            self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
+            # self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim] = \
+            #     gpuarray.to_gpu(self.embedding_weights[batch_data[:, i], :])  # NEEDS MORE WORK
+            copy_non_contiguous(self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim],
+                                self.embedding_weights[batch_data[:, i], :])
+        hidden_layer = customize_matrix_add(cublasDot(self.embedding_layer, self.emb_to_hid_weights, "T"),
+                                            self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
         self.hidden_layer_activated = logistic(hidden_layer)
-        output_layer = customize_matrix_add(
-            matrixMulti(self.hidden_layer_activated, linalg.transpose(self.hid_to_out_weights)),
-            self.out_bias)  # (B, H) @ (H, NV) -> (B, NV)
+        output_layer = customize_matrix_add(cublasDot(self.hidden_layer_activated, self.hid_to_out_weights, "T"),
+                                            self.out_bias)  # (B, H) @ (H, NV) -> (B, NV)
         max_output_layer = customize_max_finder(output_layer)
         output_layer = customize_matrix_add(output_layer, -max_output_layer)
         output_layer_activated = self._softmax(output_layer)
@@ -366,13 +410,12 @@ class Model(object):
         :param batch_data: masked inputs
         :return: ground truth of loss function
         """
-        batch_size, context_length = batch_data.shape
         self.target_batch[:] = 0
         batch_data += self.targets_offset
-        for c in range(context_length):
-            self.target_batch[np.arange(batch_size), batch_data[:, c]] = 1.
+        for c in range(self.context_length):
+            self.target_batch[np.arange(self.batch_size), batch_data[:, c]] = 1.
             if mask_zero:
-                self.target_batch[np.arange(batch_size), self.targets_offset[:, c]] = 0.
+                self.target_batch[np.arange(self.batch_size), self.targets_offset[:, c]] = 0.
         return gpuarray.to_gpu(target_batch)
 
     @staticmethod
@@ -425,8 +468,11 @@ def inference():
 
 
 if __name__ == "__main__":
+    times = 10
     start = time.time()
-    for i in range(10):
+    for i in range(times):
         train_loss = inference()
     end = time.time()
-    print("GPU execution time is {:.2f} seconds.".format((end - start) / 10))  # 10.23 seconds, loss: 3.84
+    print("GPU execution time is {:.2f} seconds on average of {} attempts.".format((end - start)/times, times))
+    # 8.92 seconds, loss: 3.85
+    cublas.cublasDestroy(handle)

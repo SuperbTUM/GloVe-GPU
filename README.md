@@ -32,9 +32,9 @@ Overall, the project will concentrate on matrix-to-matrix calculation, matrix-to
 
 ## Results
 
-We have achieved acceleration of naive GloVe representation. With cuBLAS and streams, the training time is 0.69 seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
+We have achieved acceleration of naive GloVe representation. With cuBLAS and streams, the training time is **0.69** seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
 
-We also have achieved acceleration of neural network version of GloVe. The inference time is 10.23 seconds on average, compared with 38 seconds in numpy implementation.
+We also have achieved acceleration of neural network version of GloVe. The inference time is **8.92** seconds on average, compared with 38 seconds in numpy implementation.
 
 ## Dataset & Checkpoint
 
