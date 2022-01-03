@@ -11,7 +11,7 @@ import time
 import pickle
 
 kernels = SourceModule(
-"""
+    """
 __device__ void warpReduce(volatile float* vector, int tid){
     // avoid syncthread
     if(blockDim.x >= 64) vector[tid] += vector[tid+32];
@@ -85,14 +85,14 @@ __global__ void find_max(float* matrix, float* outputs){
     if(tid == 0)  outputs[bid] = vector[0];    
 }
 
-__global__ void matrix_addition(float* matrix, float* vector, int length){
+__global__ void matrix_addition(float* matrix, const float* __restrict__ vector, int length){
     int bx = blockIdx.x;
     int tx = threadIdx.x;
     int i = bx * blockDim.x + tx;
     if(i < length)  matrix[i] += vector[bx];
 }
 
-__global__ void matrix_division(float* matrix_higher, float* matrix_lower, int length){
+__global__ void matrix_division(float* matrix_higher, const  float* __restrict__ matrix_lower, int length){
     int tx = threadIdx.x;
     int bx = blockIdx.x;
     int i = tx + bx * blockDim.x;
@@ -116,7 +116,7 @@ def concatenate(arrays, axis=0, allocator=None):
     shape = None
 
     def shape_except_axis(ary: GPUArray):
-        return ary.shape[:axis] + ary.shape[axis+1:]
+        return ary.shape[:axis] + ary.shape[axis + 1:]
 
     for i_ary, ary in enumerate(arrays):
         allocator = allocator or ary.allocator
@@ -128,13 +128,13 @@ def concatenate(arrays, axis=0, allocator=None):
         else:
             if len(ary.shape) != len(shape):
                 raise ValueError("%d'th array has different number of axes "
-                        "(should have %d, has %d)"
-                        % (i_ary, len(ary.shape), len(shape)))
+                                 "(should have %d, has %d)"
+                                 % (i_ary, len(ary.shape), len(shape)))
 
             if (ary.ndim != arrays[0].ndim
                     or shape_except_axis(ary) != shape_except_axis(arrays[0])):
                 raise ValueError("%d'th array has residual not matching "
-                        "other arrays" % i_ary)
+                                 "other arrays" % i_ary)
 
             shape[axis] += ary.shape[axis]
 
@@ -149,7 +149,7 @@ def concatenate(arrays, axis=0, allocator=None):
     base_idx = 0
     for ary in arrays:
         my_len = ary.shape[axis]
-        result[full_slice[:axis] + (slice(base_idx, base_idx+my_len),) + full_slice[axis+1:]] = ary
+        result[full_slice[:axis] + (slice(base_idx, base_idx + my_len),) + full_slice[axis + 1:]] = ary
         base_idx += my_len
 
     return result
@@ -187,10 +187,10 @@ def customize_max_finder(matrix):
     :return: maximum value vector
     """
     # This matrix is of shape (B, NV)
-    padding = gpuarray.zeros((matrix.shape[0], 1024-matrix.shape[-1]), dtype=np.float32)
+    padding = gpuarray.zeros((matrix.shape[0], 1024 - matrix.shape[-1]), dtype=np.float32)
     padded_matrix = concatenate((matrix, padding), axis=1)
-    results = gpuarray.zeros((matrix.shape[0], ), dtype=np.float32)
-    find_max(padded_matrix, results, block=(1024//2, 1, 1), grid=(matrix.shape[0], 1, 1))
+    results = gpuarray.zeros((matrix.shape[0],), dtype=np.float32)
+    find_max(padded_matrix, results, block=(1024 // 2, 1, 1), grid=(matrix.shape[0], 1, 1))
     return results
 
 
@@ -217,7 +217,7 @@ def customize_matrix_division(matrix_higher, matrix_lower):
     return matrix_higher
 
 
-def matrixMulti(*args):
+def matrixMulti(mat1, mat2):
     """
     Same as naive gpu version
     :param args: a series of matrix pairs
@@ -227,15 +227,13 @@ def matrixMulti(*args):
     beta = 0
     transa = 'n'
     transb = 'n'
-    C_list = list()
-    for i, (mat1, mat2) in enumerate(args):
-        m = mat1.shape[0]
-        n = mat2.shape[1]
-        k = mat1.shape[1]
-        C_gpu = gpuarray.zeros((m,n), dtype=np.float32)
-        cublas.cublasSgemm(handles[i], transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta, C_gpu.gpudata, n)
-        C_list.append(C_gpu)
-    return C_list
+    m = mat1.shape[0]
+    n = mat2.shape[1]
+    k = mat1.shape[1]
+    C_gpu = gpuarray.zeros((m, n), dtype=np.float32)
+    cublas.cublasSgemm(handles[0], transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta,
+                       C_gpu.gpudata, n)
+    return C_gpu
 
 
 # config settings
@@ -295,7 +293,8 @@ class Model(object):
         self.hidden_dim = hidden_dim
         self.context_length = context_length
         # definition of layers
-        self.embedding_layer = gpuarray.zeros((self.batch_size, self.context_length * self.embedding_dim), dtype=np.float32)
+        self.embedding_layer = gpuarray.zeros((self.batch_size, self.context_length * self.embedding_dim),
+                                              dtype=np.float32)
         self.hidden_layer_activated = gpuarray.zeros((self.batch_size, self.hidden_dim), dtype=np.float32)
 
         # definition of trainable parameters
@@ -318,6 +317,11 @@ class Model(object):
         output_bias = trained['output_bias'].astype(np.float32)
         output_bias = cuda.register_host_memory(output_bias)
         self.out_bias = gpuarray.to_gpu_async(output_bias, stream=streams[4])
+
+        self.targets_offset = np.repeat((np.arange(context_length) * self.vocab_size)[np.newaxis, :],
+                                        batch_size, axis=0).astype(np.int32)
+
+        self.target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
 
     def _softmax(self, y):
         """
@@ -342,10 +346,14 @@ class Model(object):
         # word_embedding_weights_cpu = self.word_embedding_weights.get()
         for i in range(self.context_length):
             self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim] = \
-                gpuarray.to_gpu_async(self.embedding_weights[batch_data[:, i], :], stream=streams[i])  # NEEDS MORE WORK
-        hidden_layer = customize_matrix_add(matrixMulti((self.embedding_layer, linalg.transpose(self.emb_to_hid_weights)))[0], self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
+                gpuarray.to_gpu(self.embedding_weights[batch_data[:, i], :])  # NEEDS MORE WORK
+        hidden_layer = customize_matrix_add(
+            matrixMulti(self.embedding_layer, linalg.transpose(self.emb_to_hid_weights)),
+            self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
         self.hidden_layer_activated = logistic(hidden_layer)
-        output_layer = customize_matrix_add(matrixMulti((self.hidden_layer_activated, linalg.transpose(self.hid_to_out_weights)))[0], self.out_bias)  # (B, H) @ (H, NV) -> (B, NV)
+        output_layer = customize_matrix_add(
+            matrixMulti(self.hidden_layer_activated, linalg.transpose(self.hid_to_out_weights)),
+            self.out_bias)  # (B, H) @ (H, NV) -> (B, NV)
         max_output_layer = customize_max_finder(output_layer)
         output_layer = customize_matrix_add(output_layer, -max_output_layer)
         output_layer_activated = self._softmax(output_layer)
@@ -359,14 +367,12 @@ class Model(object):
         :return: ground truth of loss function
         """
         batch_size, context_length = batch_data.shape
-        target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
-        targets_offset = np.repeat((np.arange(context_length) * self.vocab_size)[np.newaxis, :],
-                                   batch_size, axis=0).astype(np.int32)
-        batch_data += targets_offset
+        self.target_batch[:] = 0
+        batch_data += self.targets_offset
         for c in range(context_length):
-            target_batch[np.arange(batch_size), batch_data[:, c]] = 1.
+            self.target_batch[np.arange(batch_size), batch_data[:, c]] = 1.
             if mask_zero:
-                target_batch[np.arange(batch_size), targets_offset[:, c]] = 0.
+                self.target_batch[np.arange(batch_size), self.targets_offset[:, c]] = 0.
         return gpuarray.to_gpu(target_batch)
 
     @staticmethod
@@ -423,4 +429,4 @@ if __name__ == "__main__":
     for i in range(10):
         train_loss = inference()
     end = time.time()
-    print("GPU execution time is {:.2f} seconds.".format((end - start)/10))  # 15.62 seconds, loss: 3.84
+    print("GPU execution time is {:.2f} seconds.".format((end - start) / 10))  # 10.23 seconds, loss: 3.84
