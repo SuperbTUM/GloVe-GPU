@@ -6,7 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -228,7 +227,9 @@
       <workItem from="1640114323136" duration="857000" />
       <workItem from="1640212950980" duration="133000" />
       <workItem from="1641182229064" duration="782000" />
-      <workItem from="1641230166481" duration="846000" />
+      <workItem from="1641230166481" duration="1118000" />
+      <workItem from="1641243203547" duration="190000" />
+      <workItem from="1641421642561" duration="811000" />
     </task>
     <servers />
   </component>

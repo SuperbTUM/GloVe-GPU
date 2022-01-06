@@ -98,6 +98,13 @@ __global__ void matrix_division(float* matrix_higher, const  float* __restrict__
     int i = tx + bx * blockDim.x;
     if(i < length)  matrix_higher[i] /= matrix_lower[bx];
 }
+
+__global__ void matrix_division_no_reshape(float* high_dim_matrix, float* low_dim_matrix, float* output, int length){
+    int tx = threadIdx.x;
+    int bx = blockIdx.x;
+    int i = tx + bx * blockDim.x;
+    if(i < length)  output[i] = high_dim_matrix[i] / low_dim_matrix[bx];
+}
 """
 )
 
@@ -212,8 +219,11 @@ def customize_matrix_division(matrix_higher, matrix_lower):
     :param matrix_lower: lower level matrix, normally in shape (*, )
     :return: division result in shape of (*, dim)
     """
-    matrix_division(matrix_higher, matrix_lower, np.int32(matrix_higher.size), block=(matrix_higher.shape[-1], 1, 1),
-                    grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
+    # matrix_division(matrix_higher, matrix_lower, np.int32(matrix_higher.size), block=(matrix_higher.shape[-1], 1, 1),
+    #                 grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
+    matrix_division_no_reshape(matrix_higher, matrix_lower, output_divided_matrix, np.int32(matrix_higher.size),
+                               block=(matrix_higher.shape[-1], 1, 1),
+                               grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
     return matrix_higher
 
 
@@ -237,7 +247,7 @@ def matrixMulti(mat1, mat2):
     return C_gpu
 
 
-def cublasDot(mat1, mat2, transb="N"):
+def skcudaDot(mat1, mat2, transb="N"):
     """
     A skcuda API for matrix dot product
     :param mat1: first matrix
@@ -296,7 +306,9 @@ trained = pickle.load(open(model_location, "rb"))
 matrix_reduction = kernels.get_function("matrix_reduction")
 find_max = kernels.get_function("find_max")
 matrix_addition = kernels.get_function("matrix_addition")
-matrix_division = kernels.get_function("matrix_division")
+# matrix_division = kernels.get_function("matrix_division")
+matrix_division_no_reshape = kernels.get_function("matrix_division_no_reshape")
+output_divided_matrix = gpuarray.zeros((TRAIN_CONFIG["batch_size"], 1004), dtype=np.float32)
 # define streams for asynchronization
 stream1 = cuda.Stream(flags=1)
 stream2 = cuda.Stream(flags=1)
@@ -374,11 +386,9 @@ class Model(object):
         :return: activated output
         """
         y = cumath.exp(y)
-        y_shape = y.shape
         y = y.reshape((-1, self.context_length, self.vocab_size))
         sum_y = customize_reduction(y)
         y = customize_matrix_division(y, sum_y)
-        y = y.reshape(y_shape)
         return y
 
     def forward(self, batch_data):
@@ -393,10 +403,10 @@ class Model(object):
             #     gpuarray.to_gpu(self.embedding_weights[batch_data[:, i], :])  # NEEDS MORE WORK
             copy_non_contiguous(self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim],
                                 self.embedding_weights[batch_data[:, i], :])
-        hidden_layer = customize_matrix_add(cublasDot(self.embedding_layer, self.emb_to_hid_weights, "T"),
+        hidden_layer = customize_matrix_add(skcudaDot(self.embedding_layer, self.emb_to_hid_weights, "T"),
                                             self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
         self.hidden_layer_activated = logistic(hidden_layer)
-        output_layer = customize_matrix_add(cublasDot(self.hidden_layer_activated, self.hid_to_out_weights, "T"),
+        output_layer = customize_matrix_add(skcudaDot(self.hidden_layer_activated, self.hid_to_out_weights, "T"),
                                             self.out_bias)  # (B, H) @ (H, NV) -> (B, NV)
         max_output_layer = customize_max_finder(output_layer)
         output_layer = customize_matrix_add(output_layer, -max_output_layer)
@@ -416,7 +426,7 @@ class Model(object):
             self.target_batch[np.arange(self.batch_size), batch_data[:, c]] = 1.
             if mask_zero:
                 self.target_batch[np.arange(self.batch_size), self.targets_offset[:, c]] = 0.
-        return gpuarray.to_gpu(target_batch)
+        return gpuarray.to_gpu(self.target_batch)
 
     @staticmethod
     def compute_loss(target_batch, output_activated):
@@ -474,5 +484,5 @@ if __name__ == "__main__":
         train_loss = inference()
     end = time.time()
     print("GPU execution time is {:.2f} seconds on average of {} attempts.".format((end - start)/times, times))
-    # 8.92 seconds, loss: 3.85
+    # 7.81 seconds, loss: 3.85
     cublas.cublasDestroy(handle)
