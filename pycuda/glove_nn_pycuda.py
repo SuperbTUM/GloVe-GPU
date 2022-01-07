@@ -224,7 +224,7 @@ def customize_matrix_division(matrix_higher, matrix_lower):
     matrix_division_no_reshape(matrix_higher, matrix_lower, output_divided_matrix, np.int32(matrix_higher.size),
                                block=(matrix_higher.shape[-1], 1, 1),
                                grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
-    return matrix_higher
+    return output_divided_matrix
 
 
 def matrixMulti(mat1, mat2):
@@ -378,6 +378,7 @@ class Model(object):
                                         batch_size, axis=0).astype(np.int32)
 
         self.target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
+        self.target_batch_gpu = gpuarray.to_gpu((batch_size, context_length * self.vocab_size), dtype=np.float32)
 
     def _softmax(self, y):
         """
@@ -426,7 +427,7 @@ class Model(object):
             self.target_batch[np.arange(self.batch_size), batch_data[:, c]] = 1.
             if mask_zero:
                 self.target_batch[np.arange(self.batch_size), self.targets_offset[:, c]] = 0.
-        return gpuarray.to_gpu(self.target_batch)
+        copy_non_contiguous(self.target_batch_gpu, self.target_batch)
 
     @staticmethod
     def compute_loss(target_batch, output_activated):
@@ -468,11 +469,11 @@ def inference():
         mask = model.sample_input_mask()
         input_batch_masked = data_inputs_batch * (1 - mask)  # We only zero out one word per row
         target_batch_masked = data_inputs_batch * mask
-        target_batch = model.indicator_matrix(target_batch_masked)
+        model.indicator_matrix(target_batch_masked)
         # forward
         output_activated = model.forward(input_batch_masked)
         # calculate cross entropy loss
-        batch_loss = model.compute_loss(target_batch, output_activated) / batch_size
+        batch_loss = model.compute_loss(model.target_batch_gpu, output_activated) / batch_size
         train_loss += batch_loss
     return train_loss / num_batches
 

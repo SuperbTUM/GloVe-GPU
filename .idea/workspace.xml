@@ -7,6 +7,7 @@
     <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pytorch/baseline_pytorch_cuda.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/pytorch/baseline_pytorch_cuda.ipynb" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -229,7 +230,8 @@
       <workItem from="1641182229064" duration="782000" />
       <workItem from="1641230166481" duration="1118000" />
       <workItem from="1641243203547" duration="190000" />
-      <workItem from="1641421642561" duration="811000" />
+      <workItem from="1641421642561" duration="1134000" />
+      <workItem from="1641513575347" duration="1309000" />
     </task>
     <servers />
   </component>
