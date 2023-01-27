@@ -13,6 +13,7 @@ from skcuda import linalg, cublas
 kernels = SourceModule(
     """
     #include <stdio.h>
+    #include <math.h>
     #define shared_size 1024
     #define TILE_DIM 32
     __global__ void co_occurrence(const int* __restrict__ grams, float* co_occurence_matrix, int size_corpus, int num_grams, int length){
@@ -28,13 +29,17 @@ kernels = SourceModule(
     }
 
     __global__ void matrix_add(float* matrix1, float* matrix2, int size){
-        int i = threadIdx.x + blockIdx.x * blockDim.x;
-        if(i < size)  matrix1[i] += matrix2[i];
+        int index = threadIdx.x + blockIdx.x * blockDim.x;
+        int stride = blockDim.x * gridDim.x;
+        for(int i = index; i < size; i += stride)
+            matrix1[i] += matrix2[i];
     }
 
     __global__ void matrix_pow(float* matrix, int size){
-        int i = threadIdx.x + blockDim.x * blockIdx.x;
-        if(i < size)  matrix[i] *= matrix[i];
+        int index = threadIdx.x + blockDim.x * blockIdx.x;
+        int stride = blockDim.x * gridDim.x;
+        for(int i = index; i < size; i += stride)
+            matrix[i] *= matrix[i];
     }
     
     __global__ void matrix_multi(float* A, float* B, float* C, int ARows, int ACols, int BRows,
@@ -51,7 +56,7 @@ kernels = SourceModule(
         __shared__ float As[TILE_DIM][TILE_DIM];
         __shared__ float Bs[TILE_DIM][TILE_DIM];
     
-        for (int k = 0; k < (TILE_DIM + ACols - 1) / TILE_DIM; k++) {
+        for (int k = 0; k < ((TILE_DIM + ACols - 1) >> log2(TILE_DIM)); k++) {
     
              if (k * TILE_DIM + tx < ACols && Row < ARows)
                  As[ty][tx] = A[Row*ACols + k * TILE_DIM + tx];
@@ -64,7 +69,8 @@ kernels = SourceModule(
                  Bs[ty][tx] = 0.0;
     
              __syncthreads();
-    
+            
+             #pragma unroll
              for (int n = 0; n < TILE_DIM; ++n)
                  CValue += As[ty][n] * Bs[n][tx];
     

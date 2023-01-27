@@ -29,21 +29,26 @@ __global__ void matrix_reduction(float* matrix, float* reduction_matrix){
     __shared__ float vector[128];
     vector[tid] = matrix[i] + matrix[i+blockDim.x];
     __syncthreads();
+    // __syncwarp();
     if(blockDim.x >= 1024){
         if(tid < 512)  vector[tid] += vector[tid + 512];
         __syncthreads();
+        // __syncwarp();
     }
     if(blockDim.x >= 512){
         if(tid < 256)  vector[tid] += vector[tid + 256];
         __syncthreads(); 
+        // __syncwarp();
     }
     if(blockDim.x >= 256){
         if(tid < 128)  vector[tid] += vector[tid + 128];
         __syncthreads();
+        // __syncwarp();
     }
     if(blockDim.x >= 128){
         if(tid < 64)  vector[tid] += vector[tid + 64];
         __syncthreads();
+        // __syncwarp();
     }
     if(tid < 32)  warpReduce(vector, tid);
     if(tid == 0)  reduction_matrix[bid] = vector[0];
@@ -65,21 +70,26 @@ __global__ void find_max(float* matrix, float* outputs){
     __shared__ float vector[512];
     vector[tid] = (matrix[i] > matrix[i+blockDim.x])? matrix[i]: matrix[i+blockDim.x];
     __syncthreads();
+    // __syncwarp();
     if(blockDim.x >= 1024){
         if(tid < 512)  vector[tid] = (vector[tid] > vector[tid+512])? vector[tid]: vector[tid+512];
         __syncthreads();
+        // __syncwarp();
     }
     if(blockDim.x >= 512){
         if(tid < 256)  vector[tid] = (vector[tid] > vector[tid+256])? vector[tid]: vector[tid+256];
         __syncthreads();
+        // __syncwarp();
     }
     if(blockDim.x >= 256){
         if(tid < 128)  vector[tid] = (vector[tid] > vector[tid+128])? vector[tid]: vector[tid+128];
         __syncthreads(); 
+        // __syncwarp();
     }
     if(blockDim.x >= 128){
         if(tid < 64)  vector[tid] = (vector[tid] > vector[tid+64])? vector[tid]: vector[tid+64];
         __syncthreads();
+        // __syncwarp();
     }
     if(tid < 32)  warpMax(vector, tid);
     if(tid == 0)  outputs[bid] = vector[0];    
