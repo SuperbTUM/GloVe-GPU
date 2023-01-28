@@ -4,8 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="">
+    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="quick optimize">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" afterDir="false" />
     </list>
@@ -32,17 +33,17 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "WebServerToolWindowFactoryState": "false",
-    "last_opened_file_path": "D:/Graduate Projects/GloVe_representation",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/Graduate Projects/GloVe_representation&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="D:\test_demo" />
@@ -234,8 +235,17 @@
       <workItem from="1641421642561" duration="1134000" />
       <workItem from="1641513575347" duration="1392000" />
       <workItem from="1642369193515" duration="41000" />
-      <workItem from="1674846037260" duration="3698000" />
+      <workItem from="1674846037260" duration="4516000" />
+      <workItem from="1674928961108" duration="3433000" />
     </task>
+    <task id="LOCAL-00001" summary="quick optimize">
+      <created>1674852057488</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1674852057488</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -251,6 +261,10 @@
         </entry>
       </map>
     </option>
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="quick optimize" />
+    <option name="LAST_COMMIT_MESSAGE" value="quick optimize" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/GloVe_representation$glove_nn__1_.coverage" NAME="glove_nn (1) Coverage Results" MODIFIED="1639887510306" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/numpy" />

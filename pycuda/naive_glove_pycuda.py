@@ -81,6 +81,23 @@ kernels = SourceModule(
             C[((by * blockDim.y + ty) * CCols) +
                (bx * blockDim.x) + tx] = CValue;
     }
+    
+    __global__ void sharedABMultiply(float *A, float* B, float *C,
+                                     int CCols)
+    {
+        __shared__ float aTile[TILE_DIM][TILE_DIM],
+                         bTile[TILE_DIM][TILE_DIM];
+        int row = blockIdx.y * blockDim.y + threadIdx.y;
+        int col = blockIdx.x * blockDim.x + threadIdx.x;
+        float sum = 0.0f;
+        aTile[threadIdx.y][threadIdx.x] = A[row*TILE_DIM+threadIdx.x];
+        bTile[threadIdx.y][threadIdx.x] = B[threadIdx.y*N+col];
+        __syncthreads();
+        for (int i = 0; i < TILE_DIM; i++) {
+            sum += aTile[threadIdx.y][i]* bTile[i][threadIdx.x];
+        }
+        C[row*CCols+col] = sum;
+    }
     """
 )
 

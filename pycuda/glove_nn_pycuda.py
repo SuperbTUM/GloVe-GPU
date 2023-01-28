@@ -12,6 +12,62 @@ import pickle
 
 kernels = SourceModule(
     """
+# define warpSize 32
+
+__inline__ __device__
+float fake_shfl_down(float val, int offset, int width=32) {
+  static __shared__ float shared[warpSize];
+  int lane=threadIdx.x%32;
+
+  shared[threadIdx.x]=val;
+  __syncthreads();
+
+  val = (lane+offset<width) ? shared[threadIdx.x+offset] : 0;
+  __syncthreads();
+
+  return val;
+}
+
+__inline__ __device__
+float warpReduceSum(float val) {
+  for (int offset = warpSize/2; offset > 0; offset /= 2) 
+    val += fake_shfl_down(val, offset);
+  return val;
+}
+
+__inline__ __device__
+float blockReduceSum(float val) {
+
+  static __shared__ float shared[32]; // Shared mem for 32 partial sums
+  int lane = threadIdx.x % warpSize;
+  int wid = threadIdx.x / warpSize;
+
+  val = warpReduceSum(val);     // Each warp performs partial reduction
+
+  if (lane==0) shared[wid]=val; // Write reduced value to shared memory
+
+  __syncthreads();              // Wait for all partial reductions
+
+  //read from shared memory only if that warp existed
+  val = (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : 0.0;
+
+  if (wid==0) val = warpReduceSum(val); //Final reduce within first warp
+
+  return val;
+}
+
+__global__ void deviceReduceBlockAtomicKernel(float *in, float* out, int N) {
+  float sum = 0.0;
+  for(int i = blockIdx.x * blockDim.x + threadIdx.x; 
+      i < N; 
+      i += blockDim.x * gridDim.x) {
+    sum += in[i];
+  }
+  sum = blockReduceSum(sum);
+  if (threadIdx.x == 0)
+    atomicAdd(out, sum);
+}
+
 __device__ void warpReduce(volatile float* vector, int tid){
     // avoid syncthread
     if(blockDim.x >= 64) vector[tid] += vector[tid+32];
