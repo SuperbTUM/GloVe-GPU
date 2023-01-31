@@ -4,11 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="quick optimize">
+    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="faster reduction logic on Kepler">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -236,7 +234,9 @@
       <workItem from="1641513575347" duration="1392000" />
       <workItem from="1642369193515" duration="41000" />
       <workItem from="1674846037260" duration="4516000" />
-      <workItem from="1674928961108" duration="3433000" />
+      <workItem from="1674928961108" duration="4518000" />
+      <workItem from="1675023186172" duration="19000" />
+      <workItem from="1675192900260" duration="1179000" />
     </task>
     <task id="LOCAL-00001" summary="quick optimize">
       <created>1674852057488</created>
@@ -245,7 +245,14 @@
       <option name="project" value="LOCAL" />
       <updated>1674852057488</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="faster reduction logic on Kepler">
+      <created>1674939765780</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1674939765780</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -264,7 +271,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="quick optimize" />
-    <option name="LAST_COMMIT_MESSAGE" value="quick optimize" />
+    <MESSAGE value="faster reduction logic on Kepler" />
+    <option name="LAST_COMMIT_MESSAGE" value="faster reduction logic on Kepler" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/GloVe_representation$glove_nn__1_.coverage" NAME="glove_nn (1) Coverage Results" MODIFIED="1639887510306" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/numpy" />

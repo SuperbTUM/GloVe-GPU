@@ -249,6 +249,9 @@ def customize_reduction(matrix):
     padding = gpuarray.zeros((matrix.shape[0], matrix.shape[1], 5), dtype=np.float32)
     padded_matrix = concatenate((matrix, padding), axis=2)
     results = gpuarray.zeros((matrix.shape[0], matrix.shape[1]), dtype=np.float32)
+    # matrix_reduction.prepare(("P", "P", ))
+    # matric_reduction.prepared_call((matrix.shape[0] * matrix.shape[1], 1, 1), (256 // 2, 1, 1),
+    # padded_matrix, results)
     matrix_reduction(padded_matrix, results, block=(256 // 2, 1, 1), grid=(matrix.shape[0] * matrix.shape[1], 1, 1))
     return results
 
@@ -263,6 +266,8 @@ def customize_max_finder(matrix):
     padding = gpuarray.zeros((matrix.shape[0], 1024 - matrix.shape[-1]), dtype=np.float32)
     padded_matrix = concatenate((matrix, padding), axis=1)
     results = gpuarray.zeros((matrix.shape[0],), dtype=np.float32)
+    # find_max.prepare(("P", "P", ))
+    # find_max.prepared_call((matrix.shape[0], 1, 1), (1024 // 2, 1, 1), padded_matrix, results)
     find_max(padded_matrix, results, block=(1024 // 2, 1, 1), grid=(matrix.shape[0], 1, 1))
     return results
 
@@ -274,6 +279,9 @@ def customize_matrix_add(matrix, vector):
     :param vector: lower level vector, normally in shape (*, )
     :return: the addition result in shape of (*, dim)
     """
+    # matrix_addition.prepare(("P", "P", "i", ))
+    # matrix_addition.prepared_call((matrix.shape[0], 1, 1), (matrix.shape[1], 1, 1),
+    # matrix, vector, np.int32(matrix.size))
     matrix_addition(matrix, vector, np.int32(matrix.size), block=(matrix.shape[1], 1, 1), grid=(matrix.shape[0], 1, 1))
     return matrix
 
@@ -287,6 +295,10 @@ def customize_matrix_division(matrix_higher, matrix_lower):
     """
     # matrix_division(matrix_higher, matrix_lower, np.int32(matrix_higher.size), block=(matrix_higher.shape[-1], 1, 1),
     #                 grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
+    # matrix_division_no_reshape.prepare(("P", "P", "P", "i", ))
+    # matrix_division_no_reshape.prepared_call((matrix_higher.size // matrix_higher.shape[-1], 1, 1),
+    #                                (matrix_higher.shape[-1], 1, 1),
+    #                                matrix_higher, matrix_lower, output_divided_matrix, np.int32(matrix_higher.size))
     matrix_division_no_reshape(matrix_higher, matrix_lower, output_divided_matrix, np.int32(matrix_higher.size),
                                block=(matrix_higher.shape[-1], 1, 1),
                                grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
