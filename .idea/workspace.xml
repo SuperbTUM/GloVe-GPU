@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="faster reduction logic on Kepler">
+    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="prepared call: experimental">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/glove_nn_pycuda.py" afterDir="false" />
     </list>
@@ -236,7 +236,9 @@
       <workItem from="1674846037260" duration="4516000" />
       <workItem from="1674928961108" duration="4518000" />
       <workItem from="1675023186172" duration="19000" />
-      <workItem from="1675192900260" duration="1179000" />
+      <workItem from="1675192900260" duration="1525000" />
+      <workItem from="1675202685151" duration="146000" />
+      <workItem from="1675472869443" duration="2398000" />
     </task>
     <task id="LOCAL-00001" summary="quick optimize">
       <created>1674852057488</created>
@@ -252,7 +254,14 @@
       <option name="project" value="LOCAL" />
       <updated>1674939765780</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="prepared call: experimental">
+      <created>1675194799193</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1675194799193</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -272,7 +281,8 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="quick optimize" />
     <MESSAGE value="faster reduction logic on Kepler" />
-    <option name="LAST_COMMIT_MESSAGE" value="faster reduction logic on Kepler" />
+    <MESSAGE value="prepared call: experimental" />
+    <option name="LAST_COMMIT_MESSAGE" value="prepared call: experimental" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/GloVe_representation$glove_nn__1_.coverage" NAME="glove_nn (1) Coverage Results" MODIFIED="1639887510306" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/numpy" />
