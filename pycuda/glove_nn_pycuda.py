@@ -13,10 +13,11 @@ import pickle
 kernels = SourceModule(
     """
 # define warpSize 32
+# define MAX_BLOCK 512
 
 __inline__ __device__
 float fake_shfl_down(float val, int offset, int width=32) {
-  static __shared__ float shared[warpSize];
+  static __shared__ float shared[MAX_BLOCK];
   int lane=threadIdx.x%32;
 
   shared[threadIdx.x]=val;
@@ -56,18 +57,14 @@ float blockReduceSum(float val) {
   return val;
 }
 
-__global__ void deviceReduceBlockAtomicKernel(float *in, float* out, int N) {
-  float sum = 0.0;
-  for(int i = blockIdx.x * blockDim.x + threadIdx.x; 
-      i < N; 
-      i += blockDim.x * gridDim.x) {
-    sum += in[i];
-  }
+__global__ void deviceReduceBlock(float *in, float* out) {
+  float sum = in[threadIdx.x];
   sum = blockReduceSum(sum);
   if (threadIdx.x == 0)
-    atomicAdd(out, sum);
+    out[blockIdx.x] = sum;
 }
 
+__inline__
 __device__ void warpReduce(volatile float* vector, int tid){
     // avoid syncthread
     if(blockDim.x >= 64) vector[tid] += vector[tid+32];
