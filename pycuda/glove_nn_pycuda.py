@@ -247,7 +247,9 @@ def customize_reduction(matrix):
     padded_matrix = concatenate((matrix, padding), axis=2)
     results = gpuarray.zeros((matrix.shape[0], matrix.shape[1]), dtype=np.float32)
     # matrix_reduction.prepare(("P", "P", ))
-    matrix_reduction.prepared_call((matrix.shape[0] * matrix.shape[1], 1, 1), (256 // 2, 1, 1),
+    # matrix_reduction.prepared_call((matrix.shape[0] * matrix.shape[1], 1, 1), (256 // 2, 1, 1),
+    # padded_matrix.gpudata, results.gpudata)
+    device_reduce_block.prepared_call((matrix.shape[0] * matrix.shape[1], 1, 1), (256, 1, 1),
     padded_matrix.gpudata, results.gpudata)
     # matrix_reduction(padded_matrix, results, block=(256 // 2, 1, 1), grid=(matrix.shape[0] * matrix.shape[1], 1, 1))
     return results
@@ -380,6 +382,8 @@ trained = pickle.load(open(model_location, "rb"))
 # load kernel functions
 matrix_reduction = kernels.get_function("matrix_reduction")
 matrix_reduction.prepare(("P", "P", ))
+device_reduce_block = kernels.get_function("deviceReduceBlock")
+device_reduce_block.prepare(("P", "P", ))
 find_max = kernels.get_function("find_max")
 find_max.prepare(("P", "P", ))
 matrix_addition = kernels.get_function("matrix_addition")
@@ -457,7 +461,7 @@ class Model(object):
                                         batch_size, axis=0).astype(np.int32)
 
         self.target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
-        self.target_batch_gpu = gpuarray.to_gpu((batch_size, context_length * self.vocab_size), dtype=np.float32)
+        self.target_batch_gpu = gpuarray.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
 
     def _softmax(self, y):
         """
