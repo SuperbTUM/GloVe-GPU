@@ -9,7 +9,6 @@ import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
 from skcuda import linalg, cublas
-import ThrustRTC as trtc
 
 kernels = SourceModule(
     """
@@ -100,30 +99,34 @@ kernels = SourceModule(
         }
         C[row*CCols+col] = sum;
     }
+    
+    __global__ void shuffled(float* inputs, int* indices, float* outputs, const int width, const int nums) {
+        const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+        if(idx < nums) {
+            for(int offset = 0; offset < width; ++offset) {
+                outputs[idx * width + offset] = inputs[indices[idx] * width + offset];
+            }        
+        }
+    }
     """
 )
 from jinja2 import Template
 tpl = Template("""
-    __global__ void add(
-            {{ type_name }} *op1,
-            {{ type_name }} *op2,
-            int length)
-    {
-      int idx = threadIdx.x +
-        {{ thread_block_size }} * {{block_size}}
-        * blockIdx.x;
+    __global__ void shuffled({{ type_name }}* inputs, 
+                            int* indices, 
+                            {{ type_name }}* outputs, 
+                            const int width, 
+                            const int nums) {
+        const int idx = threadIdx.x + blockIdx.x * {{ thread_block_size }} * {{block_size}};
+        {% if idx < nums %} 
+            {% for offset in range(width) %}
+                outputs[idx * width + offset] = inputs[indices[idx] * width + offset];
+            {% endfor %}        
+        {% endif %}
+    }
+""")
 
-      {% for i in range(block_size) %}
-          {% set offset = i*thread_block_size %}
-          {% if idx + offset < length %}
-              op2[idx + {{ offset }}] =
-                op1[idx + {{ offset }}]
-                + op2[idx + {{ offset }}];
-          {% endif %}
-      {% endfor %}
-    }""")
-
-def matrix_add_metaprogramming(block_size, thread_block_size):
+def shuffled_metaprogramming(block_size, thread_block_size):
     rendered_tpl = tpl.render(
         type_name="float", block_size=block_size,
         thread_block_size=thread_block_size
@@ -132,6 +135,8 @@ def matrix_add_metaprogramming(block_size, thread_block_size):
 
 # define global variables
 # define kernels
+shuffled = kernels.get_function("shuffled")
+shuffled.prepare(("P", "P", "P", "i", "i", ))
 atomic_add = kernels.get_function("co_occurrence")
 matrix_multi = kernels.get_function("matrix_multi")
 matrix_add = kernels.get_function("matrix_add")
@@ -339,11 +344,19 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
     step_w = step_w_tilde = gpuarray.zeros((V, d), dtype=np.float32)
     step_b = step_b_tilde = gpuarray.zeros((V, 1), dtype=np.float32)
     data_inputs = data['train_inputs'].astype(np.int32)
+    nums, width = data_inputs.shape
+    data_inputs = gpuarray.to_gpu(data_inputs)
+    data_inputs_random = gpuarray.zeros_like(data_inputs)
     num_batches = data_inputs.shape[0] // batch_size
     for epoch in range(epochs):
         idxs = np.random.permutation(data_inputs.shape[0])
-        data_inputs_random = data_inputs[idxs, :]
-        data_inputs_random = gpuarray.to_gpu(data_inputs_random)
+        idxs = gpuarray.to_gpu(idxs)
+        # data_inputs_random = data_inputs[idxs, :]
+        shuffled.prepared_call((ceil(data_inputs.shape[0] / 1024), 1, 1), (1024, 1, 1),
+                               data_inputs.gpudata, idxs.gpudata, data_inputs_random.gpudata, width, nums)
+        # shuffled(data_inputs.gpudata, idxs.gpudata, data_inputs_random.gpudata, data_inputs.shape[1], data_inputs.shape[0],
+        #          block=(1024, 1, 1), grid=(ceil(data_inputs.shape[0] / 1024), 1, 1))
+        # data_inputs_random = gpuarray.to_gpu(data_inputs_random)
         co_occurence_train = log_cooccurence(data_inputs_random, V)
         learning_rate = lr_scheduler(learning_rate, epoch)
         for m in range(num_batches):
@@ -389,6 +402,6 @@ if __name__ == '__main__':
         start = time.monotonic()
         final_W = main(data)
         end += time.monotonic() - start
-    print("Average GPU execution time is {:.2f} seconds under {:d} times.".format(end/times, times))  # 0.69 seconds on average of 20 times.
+    print("Average GPU execution time is {:.2f} seconds under {:d} times.".format(end/times, times))  # 0.46 seconds on average of 20 times.
     for h in handles:
         cublas.cublasDestroy(h)

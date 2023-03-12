@@ -4,7 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="apply kepler and rerun benchmark">
+    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="quick debug">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" afterDir="false" />
     </list>
@@ -248,7 +248,7 @@
       <workItem from="1678464918296" duration="619000" />
       <workItem from="1678489092448" duration="528000" />
       <workItem from="1678489834951" duration="12000" />
-      <workItem from="1678593209328" duration="8809000" />
+      <workItem from="1678593209328" duration="13876000" />
     </task>
     <task id="LOCAL-00001" summary="quick optimize">
       <created>1674852057488</created>
@@ -292,7 +292,14 @@
       <option name="project" value="LOCAL" />
       <updated>1678419036920</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="quick debug">
+      <created>1678603885537</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1678603885538</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -314,9 +321,9 @@
     <MESSAGE value="faster reduction logic on Kepler" />
     <MESSAGE value="prepared call: experimental" />
     <MESSAGE value="prepared call" />
-    <MESSAGE value="quick debug" />
     <MESSAGE value="apply kepler and rerun benchmark" />
-    <option name="LAST_COMMIT_MESSAGE" value="apply kepler and rerun benchmark" />
+    <MESSAGE value="quick debug" />
+    <option name="LAST_COMMIT_MESSAGE" value="quick debug" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/GloVe_representation$glove_nn__1_.coverage" NAME="glove_nn (1) Coverage Results" MODIFIED="1639887510306" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/numpy" />
