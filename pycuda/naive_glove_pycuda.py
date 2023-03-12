@@ -9,6 +9,7 @@ import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 from pycuda.compiler import SourceModule
 from skcuda import linalg, cublas
+import ThrustRTC as trtc
 
 kernels = SourceModule(
     """
@@ -55,8 +56,9 @@ kernels = SourceModule(
     
         __shared__ float As[TILE_DIM][TILE_DIM];
         __shared__ float Bs[TILE_DIM][TILE_DIM];
-    
-        for (int k = 0; k < ((TILE_DIM + ACols - 1) >> log2(TILE_DIM)); k++) {
+        
+        // (int)__log2f(TILE_DIM))
+        for (int k = 0; k < (TILE_DIM + ACols - 1) >> 5; k++) {
     
              if (k * TILE_DIM + tx < ACols && Row < ARows)
                  As[ty][tx] = A[Row*ACols + k * TILE_DIM + tx];
@@ -91,7 +93,7 @@ kernels = SourceModule(
         int col = blockIdx.x * blockDim.x + threadIdx.x;
         float sum = 0.0f;
         aTile[threadIdx.y][threadIdx.x] = A[row*TILE_DIM+threadIdx.x];
-        bTile[threadIdx.y][threadIdx.x] = B[threadIdx.y*N+col];
+        bTile[threadIdx.y][threadIdx.x] = B[threadIdx.y*TILE_DIM+col];
         __syncthreads();
         for (int i = 0; i < TILE_DIM; i++) {
             sum += aTile[threadIdx.y][i]* bTile[i][threadIdx.x];
@@ -100,6 +102,33 @@ kernels = SourceModule(
     }
     """
 )
+from jinja2 import Template
+tpl = Template("""
+    __global__ void add(
+            {{ type_name }} *op1,
+            {{ type_name }} *op2,
+            int length)
+    {
+      int idx = threadIdx.x +
+        {{ thread_block_size }} * {{block_size}}
+        * blockIdx.x;
+
+      {% for i in range(block_size) %}
+          {% set offset = i*thread_block_size %}
+          {% if idx + offset < length %}
+              op2[idx + {{ offset }}] =
+                op1[idx + {{ offset }}]
+                + op2[idx + {{ offset }}];
+          {% endif %}
+      {% endfor %}
+    }""")
+
+def matrix_add_metaprogramming(block_size, thread_block_size):
+    rendered_tpl = tpl.render(
+        type_name="float", block_size=block_size,
+        thread_block_size=thread_block_size
+    )
+    return SourceModule(rendered_tpl)
 
 # define global variables
 # define kernels
@@ -255,14 +284,14 @@ def grad(W, W_tilde, b, b_tilde, co_occurence):
     """
     the_loss = matrixMultiWithSum((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
                                   (column_vector_indicator, linalg.transpose(b_tilde)), bias=-co_occurence)
-    grad_W, grad_W_tilde, grad_b, grad_b_tilde = matrixMulti((the_loss, W_tilde), (linalg.transpose(W), the_loss),
-                                                             (row_vector_indicator, the_loss),
-                                                             (row_vector_indicator, the_loss))
+    grad_W, grad_W_tilde, grad_b = matrixMulti((the_loss, W_tilde), (linalg.transpose(the_loss), W),
+                                                (row_vector_indicator, the_loss))
+    # grad_b_tilde = grad_b
     grad_W = 2 * grad_W
-    grad_W_tilde = 2 * linalg.transpose(grad_W_tilde)
+    grad_W_tilde = 2 * grad_W_tilde
     grad_b = 2 * linalg.transpose(grad_b)
-    grad_b_tilde = 2 * linalg.transpose(grad_b_tilde)
-    return grad_W, grad_W_tilde, grad_b, grad_b_tilde
+    # grad_b_tilde = 2 * linalg.transpose(grad_b_tilde)
+    return grad_W, grad_W_tilde, grad_b, grad_b
 
 
 def loss(W, W_tilde, b, b_tilde, co_occurence):
@@ -354,9 +383,12 @@ def main(data):
 
 if __name__ == '__main__':
     data = load_dataset()
-    start = time.time()
-    final_W = main(data)
-    end = time.time()
-    print("GPU execution time is {:.2f} seconds.".format(end - start))  # 0.69 seconds on average of 20 times.
+    times = 20
+    end = 0.
+    for _ in range(times):
+        start = time.monotonic()
+        final_W = main(data)
+        end += time.monotonic() - start
+    print("Average GPU execution time is {:.2f} seconds under {:d} times.".format(end/times, times))  # 0.69 seconds on average of 20 times.
     for h in handles:
         cublas.cublasDestroy(h)
