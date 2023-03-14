@@ -171,6 +171,34 @@ __global__ void matrix_division_no_reshape(float* high_dim_matrix, float* low_di
     int i = tx + bx * blockDim.x;
     if(i < length)  output[i] = high_dim_matrix[i] / low_dim_matrix[bx];
 }
+
+__global__ void partial_copy(int* inputs, int* outputs, 
+                            int rows, int cols, int group) {
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    const int cur_row = group * rows + idx;
+    if(idx < rows && idy < cols) {
+        outputs[idx * cols + idy] = inputs[cur_row * cols + idy];
+    }
+}
+
+__global__ void custom_set_float(float* inputs, int* row_indices, int* col_indices, const float target, 
+                           const int rows, const int cols, const int cols_total) {
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    if(idx < rows && idy < cols) {
+        inputs[row_indices[idx] * cols_total + col_indices[idy]] = target;
+    }
+}
+
+__global__ void custom_set_int(int* inputs, int* row_indices, int* col_indices, const int target, 
+                           const int rows, const int cols, const int cols_total) {
+    const int idx = threadIdx.x + blockIdx.x * blockDim.x;
+    const int idy = threadIdx.y + blockIdx.y * blockDim.y;
+    if(idx < rows && idy < cols) {
+        inputs[row_indices[idx] * cols_total + col_indices[idy]] = target;
+    }
+}
 """
 )
 
@@ -253,7 +281,7 @@ def customize_reduction(matrix):
     # matrix_reduction.prepared_call((matrix.shape[0] * matrix.shape[1], 1, 1), (256 // 2, 1, 1),
     # padded_matrix.gpudata, results.gpudata)
     device_reduce_block.prepared_call((matrix.shape[0] * matrix.shape[1], 1, 1), (256, 1, 1),
-    padded_matrix.gpudata, results.gpudata)
+                                      padded_matrix.gpudata, results.gpudata)
     # matrix_reduction(padded_matrix, results, block=(256 // 2, 1, 1), grid=(matrix.shape[0] * matrix.shape[1], 1, 1))
     return results
 
@@ -283,7 +311,7 @@ def customize_matrix_add(matrix, vector):
     """
     # matrix_addition.prepare(("P", "P", "i", ))
     matrix_addition.prepared_call((matrix.shape[0], 1, 1), (matrix.shape[1], 1, 1),
-    matrix.gpudata, vector.gpudata, np.int32(matrix.size))
+                                  matrix.gpudata, vector.gpudata, np.int32(matrix.size))
     # matrix_addition(matrix, vector, np.int32(matrix.size), block=(matrix.shape[1], 1, 1), grid=(matrix.shape[0], 1, 1))
     return matrix
 
@@ -299,8 +327,9 @@ def customize_matrix_division(matrix_higher, matrix_lower):
     #                 grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
     # matrix_division_no_reshape.prepare(("P", "P", "P", "i", ))
     matrix_division_no_reshape.prepared_call((matrix_higher.size // matrix_higher.shape[-1], 1, 1),
-                                   (matrix_higher.shape[-1], 1, 1),
-                                   matrix_higher.gpudata, matrix_lower.gpudata, output_divided_matrix.gpudata, np.int32(matrix_higher.size))
+                                             (matrix_higher.shape[-1], 1, 1),
+                                             matrix_higher.gpudata, matrix_lower.gpudata, output_divided_matrix.gpudata,
+                                             np.int32(matrix_higher.size))
     # matrix_division_no_reshape(matrix_higher, matrix_lower, output_divided_matrix, np.int32(matrix_higher.size),
     #                            block=(matrix_higher.shape[-1], 1, 1),
     #                            grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
@@ -376,7 +405,7 @@ def copy_non_contiguous(dst, src):
 
 
 # config settings
-TRAIN_CONFIG = {"batch_size": 100,
+TRAIN_CONFIG = {"batch_size": 128,
                 "hidden_dim": 128,
                 "embedding_dim": 16}
 # load trained model
@@ -384,16 +413,22 @@ model_location = 'partially_trained.pk'
 trained = pickle.load(open(model_location, "rb"))
 # load kernel functions
 matrix_reduction = kernels.get_function("matrix_reduction")
-matrix_reduction.prepare(("P", "P", ))
+matrix_reduction.prepare(("P", "P",))
 device_reduce_block = kernels.get_function("deviceReduceBlock")
-device_reduce_block.prepare(("P", "P", ))
+device_reduce_block.prepare(("P", "P",))
 find_max = kernels.get_function("find_max")
-find_max.prepare(("P", "P", ))
+find_max.prepare(("P", "P",))
 matrix_addition = kernels.get_function("matrix_addition")
-matrix_addition.prepare(("P", "P", "i", ))
+matrix_addition.prepare(("P", "P", "i",))
 # matrix_division = kernels.get_function("matrix_division")
 matrix_division_no_reshape = kernels.get_function("matrix_division_no_reshape")
-matrix_division_no_reshape.prepare(("P", "P", "P", "i", ))
+matrix_division_no_reshape.prepare(("P", "P", "P", "i",))
+partial_copy = kernels.get_function("partial_copy")
+partial_copy.prepare(("P", "P", "i", "i", "i",))
+custom_set_float = kernels.get_function("custom_set_float")
+custom_set_float.prepare(("P", "P", "P", "f", "i", "i", "i",))
+custom_set_int = kernels.get_function("custom_set_int")
+custom_set_int.prepare(("P", "P", "P", "i", "i", "i", "i",))
 output_divided_matrix = gpuarray.zeros((TRAIN_CONFIG["batch_size"], 1004), dtype=np.float32)
 # define streams for asynchronization
 stream1 = cuda.Stream(flags=1)
@@ -460,11 +495,14 @@ class Model(object):
         output_bias = cuda.register_host_memory(output_bias)
         self.out_bias = gpuarray.to_gpu_async(output_bias, stream=streams[4])
 
-        self.targets_offset = np.repeat((np.arange(context_length) * self.vocab_size)[np.newaxis, :],
-                                        batch_size, axis=0).astype(np.int32)
+        targets_offset = np.repeat((np.arange(context_length) * self.vocab_size)[np.newaxis, :],
+                                   batch_size, axis=0).astype(np.int32)
+        targets_offset = cuda.register_host_memory(targets_offset)
+        self.targets_offset = gpuarray.to_gpu_async(targets_offset, stream=streams[0])
 
-        self.target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
-        self.target_batch_gpu = gpuarray.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
+        self.target_batch = gpuarray.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
+        # self.target_batch_gpu = gpuarray.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
+        self.row_indices = gpuarray.arange(0, self.batch_size, dtype=np.int32)
 
     def _softmax(self, y):
         """
@@ -489,7 +527,7 @@ class Model(object):
             # self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim] = \
             #     gpuarray.to_gpu(self.embedding_weights[batch_data[:, i], :])  # NEEDS MORE WORK
             copy_non_contiguous(self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim],
-                                self.embedding_weights[batch_data[:, i], :])
+                                self.embedding_weights[batch_data[:, i].get(), :])
         hidden_layer = customize_matrix_add(skcudaDot(self.embedding_layer, self.emb_to_hid_weights, "T"),
                                             self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
         self.hidden_layer_activated = logistic(hidden_layer)
@@ -510,10 +548,22 @@ class Model(object):
         self.target_batch[:] = 0
         batch_data += self.targets_offset
         for c in range(self.context_length):
-            self.target_batch[np.arange(self.batch_size), batch_data[:, c]] = 1.
+            # self.target_batch[np.arange(self.batch_size), batch_data[:, c]] = 1.
+            custom_set_float.prepared_call((4, ceil(batch_data.shape[0] / 32), 1),
+                                           (32, 32, 1),
+                                           self.target_batch.gpudata, self.row_indices.gpudata,
+                                           batch_data[:, c].gpudata,
+                                           1.0, self.batch_size,
+                                           batch_data.shape[0], self.target_batch.shape[1])
             if mask_zero:
-                self.target_batch[np.arange(self.batch_size), self.targets_offset[:, c]] = 0.
-        copy_non_contiguous(self.target_batch_gpu, self.target_batch)
+                # self.target_batch[np.arange(self.batch_size), self.targets_offset[:, c]] = 0.
+                custom_set_float.prepared_call((4, ceil(self.targets_offset.shape[0] / 32), 1),
+                                               (32, 32, 1),
+                                               self.target_batch.gpudata, self.row_indices.gpudata,
+                                               self.targets_offset[:, c].gpudata,
+                                               0.0, self.batch_size, self.targets_offset.shape[0],
+                                               self.target_batch.shape[1])
+        # copy_non_contiguous(self.target_batch_gpu, self.target_batch)
 
     @staticmethod
     def compute_loss(target_batch, output_activated):
@@ -530,10 +580,16 @@ class Model(object):
         """Samples a binary mask for the inputs of size batch_size x context_len
         For each row, at most one element will be 1.
         """
-        mask_idx = np.random.randint(self.context_length, size=(self.batch_size,))
-        mask = np.zeros((self.batch_size, self.context_length),
-                        dtype=np.int32)  # Convert to one hot B x N, B batch size, N context len
-        mask[np.arange(self.batch_size), mask_idx] = 1
+        mask_idx = np.random.randint(self.context_length, size=(self.batch_size,), dtype=np.int32)
+        mask_idx = cuda.register_host_memory(mask_idx)
+        mask_idx = gpuarray.to_gpu(mask_idx)
+        mask = gpuarray.zeros((self.batch_size, self.context_length),
+                              dtype=np.int32)  # Convert to one hot B x N, B batch size, N context len
+        custom_set_int.prepared_call(
+            (4, ceil(self.context_length / 32), 1),
+            (32, 32, 1),
+            mask.gpudata, self.row_indices.gpudata, mask_idx.gpudata,
+            1, self.batch_size, self.context_length, self.context_length)
         return mask
 
 
@@ -544,14 +600,20 @@ def inference():
     """
     data = pickle.load(open("data.pk", "rb"))
     data_inputs = data["train_inputs"].astype(np.int32)
+    data_inputs = cuda.register_host_memory(data_inputs)
+    data_inputs = gpuarray.to_gpu_async(data_inputs, stream=stream1)
     model = Model(TRAIN_CONFIG["batch_size"], len(data["vocab"]), TRAIN_CONFIG['embedding_dim'],
                   TRAIN_CONFIG['hidden_dim'], data_inputs.shape[1])
     batch_size = TRAIN_CONFIG["batch_size"]
+    data_inputs_batch = gpuarray.zeros((batch_size, data_inputs.shape[1]), dtype=np.int32)
+
     num_batches = data_inputs.shape[0] // batch_size
     train_loss = 0.
     for m in range(num_batches):
         # Data Preparation
-        data_inputs_batch = data_inputs[m * batch_size: (m + 1) * batch_size, :]
+        partial_copy.prepared_call((4, ceil(data_inputs.shape[1] / 32), 1), (32, 32, 1), data_inputs.gpudata,
+                                   data_inputs_batch.gpudata, batch_size, data_inputs.shape[1], m)
+        # data_inputs_batch = data_inputs[m * batch_size: (m + 1) * batch_size, :]
         mask = model.sample_input_mask()
         input_batch_masked = data_inputs_batch * (1 - mask)  # We only zero out one word per row
         target_batch_masked = data_inputs_batch * mask
@@ -559,7 +621,7 @@ def inference():
         # forward
         output_activated = model.forward(input_batch_masked)
         # calculate cross entropy loss
-        batch_loss = model.compute_loss(model.target_batch_gpu, output_activated) / batch_size
+        batch_loss = model.compute_loss(model.target_batch, output_activated) / batch_size
         train_loss += batch_loss
     return train_loss / num_batches
 
@@ -570,6 +632,6 @@ if __name__ == "__main__":
     for i in range(times):
         train_loss = inference()
     end = time.time()
-    print("GPU execution time is {:.2f} seconds on average of {} attempts.".format((end - start)/times, times))
+    print("GPU execution time is {:.2f} seconds on average of {} attempts.".format((end - start) / times, times))
     # 7.81 seconds, loss: 3.85
     cublas.cublasDestroy(handle)
