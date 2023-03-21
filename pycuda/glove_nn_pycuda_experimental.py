@@ -173,30 +173,27 @@ __global__ void matrix_division_no_reshape(float* high_dim_matrix, float* low_di
 }
 
 __global__ void partial_copy(int* inputs, int* outputs, 
-                            int rows, int cols, int group) {
+                            const int rows, const int cols, const int group, const int bs) {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    const int idy = threadIdx.y + blockIdx.y * blockDim.y;
-    const int cur_row = group * rows + idx;
-    if(idx < rows && idy < cols) {
-        outputs[idx * cols + idy] = inputs[cur_row * cols + idy];
+    const int bias = group * bs * cols;
+    if(idx < cols * bs && bias+idx < rows * cols) {
+        outputs[idx] = inputs[bias + idx];
     }
 }
 
-__global__ void custom_set_float(float* inputs, int* row_indices, int* col_indices, const float target, 
-                           const int rows, const int cols, const int cols_total) {
+__global__ void custom_set_float(float* inputs, const int* row_indices, const int* col_indices, const float target, 
+                           const int rows, const int cols_total) {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    const int idy = threadIdx.y + blockIdx.y * blockDim.y;
-    if(idx < rows && idy < cols) {
-        inputs[row_indices[idx] * cols_total + col_indices[idy]] = target;
+    if(idx < rows) {
+        inputs[row_indices[idx] * cols_total + col_indices[idx]] = target;
     }
 }
 
-__global__ void custom_set_int(int* inputs, int* row_indices, int* col_indices, const int target, 
-                           const int rows, const int cols, const int cols_total) {
+__global__ void custom_set_int(int* inputs, const int* row_indices, const int* col_indices, const int target, 
+                           const int rows, const int cols_total) {
     const int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    const int idy = threadIdx.y + blockIdx.y * blockDim.y;
-    if(idx < rows && idy < cols) {
-        inputs[row_indices[idx] * cols_total + col_indices[idy]] = target;
+    if(idx < rows) {
+        inputs[row_indices[idx] * cols_total + col_indices[idx]] = target;
     }
 }
 """
@@ -424,11 +421,11 @@ matrix_addition.prepare(("P", "P", "i",))
 matrix_division_no_reshape = kernels.get_function("matrix_division_no_reshape")
 matrix_division_no_reshape.prepare(("P", "P", "P", "i",))
 partial_copy = kernels.get_function("partial_copy")
-partial_copy.prepare(("P", "P", "i", "i", "i",))
+partial_copy.prepare(("P", "P", "i", "i", "i", "i", ))
 custom_set_float = kernels.get_function("custom_set_float")
-custom_set_float.prepare(("P", "P", "P", "f", "i", "i", "i",))
+custom_set_float.prepare(("P", "P", "P", "f", "i", "i",))
 custom_set_int = kernels.get_function("custom_set_int")
-custom_set_int.prepare(("P", "P", "P", "i", "i", "i", "i",))
+custom_set_int.prepare(("P", "P", "P", "i", "i", "i",))
 output_divided_matrix = gpuarray.zeros((TRAIN_CONFIG["batch_size"], 1004), dtype=np.float32)
 # define streams for asynchronization
 stream1 = cuda.Stream(flags=1)
@@ -545,23 +542,23 @@ class Model(object):
         :param batch_data: masked inputs
         :return: ground truth of loss function
         """
-        self.target_batch[:] = 0
+        self.target_batch.fill(0.0)
         batch_data += self.targets_offset
         for c in range(self.context_length):
             # self.target_batch[np.arange(self.batch_size), batch_data[:, c]] = 1.
-            custom_set_float.prepared_call((4, ceil(batch_data.shape[0] / 32), 1),
-                                           (32, 32, 1),
+            custom_set_float.prepared_call((1, 1, 1),
+                                           (TRAIN_CONFIG["batch_size"], 1, 1),
                                            self.target_batch.gpudata, self.row_indices.gpudata,
                                            batch_data[:, c].gpudata,
                                            1.0, self.batch_size,
-                                           batch_data.shape[0], self.target_batch.shape[1])
+                                           self.target_batch.shape[1])
             if mask_zero:
                 # self.target_batch[np.arange(self.batch_size), self.targets_offset[:, c]] = 0.
-                custom_set_float.prepared_call((4, ceil(self.targets_offset.shape[0] / 32), 1),
-                                               (32, 32, 1),
+                custom_set_float.prepared_call((1, 1, 1),
+                                               (TRAIN_CONFIG["batch_size"], 1, 1),
                                                self.target_batch.gpudata, self.row_indices.gpudata,
                                                self.targets_offset[:, c].gpudata,
-                                               0.0, self.batch_size, self.targets_offset.shape[0],
+                                               0.0, self.batch_size,
                                                self.target_batch.shape[1])
         # copy_non_contiguous(self.target_batch_gpu, self.target_batch)
 
@@ -586,10 +583,10 @@ class Model(object):
         mask = gpuarray.zeros((self.batch_size, self.context_length),
                               dtype=np.int32)  # Convert to one hot B x N, B batch size, N context len
         custom_set_int.prepared_call(
-            (4, ceil(self.context_length / 32), 1),
-            (32, 32, 1),
+            (1, 1, 1),
+            (TRAIN_CONFIG["batch_size"], 1, 1),
             mask.gpudata, self.row_indices.gpudata, mask_idx.gpudata,
-            1, self.batch_size, self.context_length, self.context_length)
+            1, self.batch_size, self.context_length)
         return mask
 
 
@@ -611,8 +608,8 @@ def inference():
     train_loss = 0.
     for m in range(num_batches):
         # Data Preparation
-        partial_copy.prepared_call((4, ceil(data_inputs.shape[1] / 32), 1), (32, 32, 1), data_inputs.gpudata,
-                                   data_inputs_batch.gpudata, batch_size, data_inputs.shape[1], m)
+        partial_copy.prepared_call((ceil(batch_size * data_inputs.shape[1]/1024), 1, 1), (1024, 1, 1), data_inputs.gpudata,
+                                   data_inputs_batch.gpudata, data_inputs.shape[0], data_inputs.shape[1], m, batch_size)
         # data_inputs_batch = data_inputs[m * batch_size: (m + 1) * batch_size, :]
         mask = model.sample_input_mask()
         input_batch_masked = data_inputs_batch * (1 - mask)  # We only zero out one word per row
