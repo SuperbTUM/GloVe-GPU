@@ -7,6 +7,7 @@ import pycuda.autoinit
 import pycuda.cumath as cumath
 import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
+from pycuda import curandom
 from pycuda.compiler import SourceModule
 from skcuda import linalg, cublas
 
@@ -162,7 +163,7 @@ cublas.cublasSetStream(h3, streams[2].handle)
 h4 = cublas.cublasCreate()
 cublas.cublasSetStream(h4, streams[3].handle)
 handles = (h1, h2, h3, h4)
-
+random_generator = curandom.XORWOWRandomNumberGenerator(curandom.seed_getter_unique)
 # deprecated
 # def matrixMulti(*args):
 #     C_list = list()
@@ -241,8 +242,8 @@ def log_cooccurence(word_data, V):
                np.int32(n_grams), np.int32(length),
                block=(1024, 1, 1), grid=(ceil(length / 1024), 1, 1))
     smooth = 0.5
-    cooccurence_matrix_gpu += smooth
-    cooccurence_matrix_gpu = cumath.log(cooccurence_matrix_gpu)
+    # cooccurence_matrix_gpu += smooth
+    cooccurence_matrix_gpu = cumath.log(cooccurence_matrix_gpu + smooth)
     return cooccurence_matrix_gpu
 
 
@@ -254,25 +255,30 @@ def init(V, d):
     :return: initial weight and bias matrix
     """
     base = 0.1
-    W = base * np.random.normal(size=(V, d)).astype(np.float32)
-    W = cuda.register_host_memory(W)
-    W_gpu = gpuarray.to_gpu_async(W, stream=streams[0])
-    W.base.unregister()
+    # experimental
+    # W = base * np.random.normal(size=(V, d)).astype(np.float32)
+    # W = cuda.register_host_memory(W)
+    # W_gpu = gpuarray.to_gpu_async(W, stream=streams[0])
+    # W.base.unregister()
+    W_gpu = base * random_generator.gen_normal((V, d), dtype="float32", stream=streams[0])
 
-    W_tilde = base * np.random.normal(size=(V, d)).astype(np.float32)
-    W_tilde = cuda.register_host_memory(W_tilde)
-    W_tilde_gpu = gpuarray.to_gpu_async(W_tilde, stream=streams[1])
-    W_tilde.base.unregister()
+    # W_tilde = base * np.random.normal(size=(V, d)).astype(np.float32)
+    # W_tilde = cuda.register_host_memory(W_tilde)
+    # W_tilde_gpu = gpuarray.to_gpu_async(W_tilde, stream=streams[1])
+    # W_tilde.base.unregister()
+    W_tilde_gpu = base * random_generator.gen_normal((V, d), dtype="float32", stream=streams[1])
 
-    b = base * np.random.normal(size=(V, 1)).astype(np.float32)
-    b = cuda.register_host_memory(b)
-    b_gpu = gpuarray.to_gpu_async(b, stream=streams[2])
-    b.base.unregister()
+    # b = base * np.random.normal(size=(V, 1)).astype(np.float32)
+    # b = cuda.register_host_memory(b)
+    # b_gpu = gpuarray.to_gpu_async(b, stream=streams[2])
+    # b.base.unregister()
+    b_gpu = base * random_generator.gen_normal((V, 1), dtype="float32", stream=streams[2])
 
-    b_tilde = base * np.random.normal(size=(V, 1)).astype(np.float32)
-    b_tilde = cuda.register_host_memory(b_tilde)
-    b_tilde_gpu = gpuarray.to_gpu_async(b_tilde, stream=streams[3])
-    b_tilde.base.unregister()
+    # b_tilde = base * np.random.normal(size=(V, 1)).astype(np.float32)
+    # b_tilde = cuda.register_host_memory(b_tilde)
+    # b_tilde_gpu = gpuarray.to_gpu_async(b_tilde, stream=streams[3])
+    # b_tilde.base.unregister()
+    b_tilde_gpu = base * random_generator.gen_normal((V, 1), dtype="float32", stream=streams[3])
 
     return W_gpu, W_tilde_gpu, b_gpu, b_tilde_gpu
 

@@ -4,9 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="experimental">
+    <list default="true" id="1ecc9017-ba1c-4b1b-b5bb-f3513dbba7b1" name="Default Changelist" comment="experimental debug">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/pycuda/glove_nn_pycuda_experimental.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/glove_nn_pycuda_experimental.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" beforeDir="false" afterPath="$PROJECT_DIR$/pycuda/naive_glove_pycuda.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -254,7 +254,11 @@
       <workItem from="1678754408432" duration="19812000" />
       <workItem from="1678853754285" duration="3069000" />
       <workItem from="1678901989887" duration="5000" />
-      <workItem from="1679370450498" duration="3519000" />
+      <workItem from="1679370450498" duration="3663000" />
+      <workItem from="1679500167600" duration="618000" />
+      <workItem from="1687798984279" duration="64000" />
+      <workItem from="1687803762860" duration="49000" />
+      <workItem from="1687995946876" duration="2393000" />
     </task>
     <task id="LOCAL-00001" summary="quick optimize">
       <created>1674852057488</created>
@@ -319,7 +323,14 @@
       <option name="project" value="LOCAL" />
       <updated>1678835238425</updated>
     </task>
-    <option name="localTasksCounter" value="10" />
+    <task id="LOCAL-00010" summary="experimental debug">
+      <created>1679374124208</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1679374124208</updated>
+    </task>
+    <option name="localTasksCounter" value="11" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -345,7 +356,8 @@
     <MESSAGE value="quick debug" />
     <MESSAGE value="shuffled on gpu" />
     <MESSAGE value="experimental" />
-    <option name="LAST_COMMIT_MESSAGE" value="experimental" />
+    <MESSAGE value="experimental debug" />
+    <option name="LAST_COMMIT_MESSAGE" value="experimental debug" />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/GloVe_representation$glove_nn__1_.coverage" NAME="glove_nn (1) Coverage Results" MODIFIED="1639887510306" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/numpy" />
