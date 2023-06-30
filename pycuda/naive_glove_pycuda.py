@@ -9,6 +9,7 @@ import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 from pycuda import curandom
 from pycuda.compiler import SourceModule
+from pycuda.tools import DeviceMemoryPool
 from skcuda import linalg, cublas
 
 kernels = SourceModule(
@@ -134,6 +135,7 @@ def shuffled_metaprogramming(block_size, thread_block_size):
     )
     return SourceModule(rendered_tpl)
 
+dev_pool = DeviceMemoryPool()
 # define global variables
 # define kernels
 shuffled = kernels.get_function("shuffled")
@@ -195,7 +197,7 @@ def matrixMulti(*args):
         m = mat1.shape[0]
         n = mat2.shape[1]
         k = mat1.shape[1]
-        C_gpu = gpuarray.zeros((m,n), dtype=np.float32)
+        C_gpu = gpuarray.zeros((m,n), dtype=np.float32, allocator=dev_pool.allocate)
         cublas.cublasSgemm(handles[i], transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta, C_gpu.gpudata, n)
         C_list.append(C_gpu)
     return C_list
@@ -216,7 +218,7 @@ def matrixMultiWithSum(*args, bias=None):
             bias = None
             flag = False
         elif flag:
-            C_gpu = gpuarray.zeros((m,n), dtype=np.float32)
+            C_gpu = gpuarray.zeros((m,n), dtype=np.float32, allocator=dev_pool.allocate)
             flag = False
         cublas.cublasSgemm(h1, transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta, C_gpu.gpudata, n)
     return C_gpu
@@ -235,7 +237,7 @@ def log_cooccurence(word_data, V):
     :param V: number of vocabs
     :return: log co-occurrence matrix
     """
-    cooccurence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32)
+    cooccurence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32, allocator=dev_pool.allocate)
     n_grams = word_data.shape[1]
     length = word_data.shape[0] * n_grams
     atomic_add(word_data, cooccurence_matrix_gpu, np.int32(V),
@@ -340,7 +342,7 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
     :return: final weights of words
     """
     word_data = data['valid_inputs'].astype(np.int32)
-    word_data_gpu = gpuarray.to_gpu(word_data)
+    word_data_gpu = gpuarray.to_gpu(word_data, allocator=dev_pool.allocate)
     co_occurence_valid = log_cooccurence(word_data_gpu, V)
     learning_rate = 0.05 / V
     momentum = 0.9
@@ -411,3 +413,4 @@ if __name__ == '__main__':
     print("Average GPU execution time is {:.2f} seconds under {:d} times.".format(end/times, times))  # 0.46 seconds on average of 20 times.
     for h in handles:
         cublas.cublasDestroy(h)
+    dev_pool.stop_holding()

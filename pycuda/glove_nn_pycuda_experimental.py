@@ -4,6 +4,7 @@ from pycuda.compiler import SourceModule
 import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 import pycuda.cumath as cumath
+from pycuda.tools import DeviceMemoryPool
 import numpy as np
 from math import ceil
 from skcuda import linalg, cublas
@@ -271,9 +272,9 @@ def customize_reduction(matrix):
     """
     # This matrix if of shape (B, N, V)
     assert matrix.shape[-1] == 251
-    padding = gpuarray.zeros((matrix.shape[0], matrix.shape[1], 5), dtype=np.float32)
-    padded_matrix = concatenate((matrix, padding), axis=2)
-    results = gpuarray.zeros((matrix.shape[0], matrix.shape[1]), dtype=np.float32)
+    padding = gpuarray.zeros((matrix.shape[0], matrix.shape[1], 5), dtype=np.float32, allocator=dev_pool.allocate)
+    padded_matrix = concatenate((matrix, padding), axis=2, allocator=dev_pool.allocate)
+    results = gpuarray.zeros((matrix.shape[0], matrix.shape[1]), dtype=np.float32, allocator=dev_pool.allocate)
     # matrix_reduction.prepare(("P", "P", ))
     # matrix_reduction.prepared_call((matrix.shape[0] * matrix.shape[1], 1, 1), (256 // 2, 1, 1),
     # padded_matrix.gpudata, results.gpudata)
@@ -290,9 +291,9 @@ def customize_max_finder(matrix):
     :return: maximum value vector
     """
     # This matrix is of shape (B, NV)
-    padding = gpuarray.zeros((matrix.shape[0], 1024 - matrix.shape[-1]), dtype=np.float32)
-    padded_matrix = concatenate((matrix, padding), axis=1)
-    results = gpuarray.zeros((matrix.shape[0],), dtype=np.float32)
+    padding = gpuarray.zeros((matrix.shape[0], 1024 - matrix.shape[-1]), dtype=np.float32, allocator=dev_pool.allocate)
+    padded_matrix = concatenate((matrix, padding), axis=1, allocator=dev_pool.allocate)
+    results = gpuarray.zeros((matrix.shape[0],), dtype=np.float32, allocator=dev_pool.allocate)
     # find_max.prepare(("P", "P", ))
     find_max.prepared_call((matrix.shape[0], 1, 1), (1024 // 2, 1, 1), padded_matrix.gpudata, results.gpudata)
     # find_max(padded_matrix, results, block=(1024 // 2, 1, 1), grid=(matrix.shape[0], 1, 1))
@@ -347,7 +348,7 @@ def matrixMulti(mat1, mat2):
     m = mat1.shape[0]
     n = mat2.shape[1]
     k = mat1.shape[1]
-    C_gpu = gpuarray.zeros((m, n), dtype=np.float32)
+    C_gpu = gpuarray.zeros((m, n), dtype=np.float32, allocator=dev_pool.allocate)
     cublas.cublasSgemm(handle, transa, transb, n, m, k, alpha, mat2.gpudata, n, mat1.gpudata, k, beta,
                        C_gpu.gpudata, n)
     return C_gpu
@@ -401,6 +402,7 @@ def copy_non_contiguous(dst, src):
         copy(aligned=False)
 
 
+dev_pool = DeviceMemoryPool()
 # config settings
 TRAIN_CONFIG = {"batch_size": 128,
                 "hidden_dim": 128,
