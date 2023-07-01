@@ -141,9 +141,11 @@ dev_pool = DeviceMemoryPool()
 shuffled = kernels.get_function("shuffled")
 shuffled.prepare(("P", "P", "P", "i", "i", ))
 atomic_add = kernels.get_function("co_occurrence")
+atomic_add.prepare(("P", "P", "i", "i", "i", ))
 matrix_multi = kernels.get_function("matrix_multi")
 matrix_add = kernels.get_function("matrix_add")
 matrix_pow = kernels.get_function("matrix_pow")
+matrix_pow.prepare(("P", "i", ))
 # define streams
 stream1 = cuda.Stream(flags=1)
 stream2 = cuda.Stream(flags=1)
@@ -213,7 +215,7 @@ def matrixMultiWithSum(*args, bias=None):
         m = mat1.shape[0]
         n = mat2.shape[1]
         k = mat1.shape[1]
-        if bias:
+        if bias is not None:
             C_gpu = bias
             bias = None
             flag = False
@@ -240,9 +242,14 @@ def log_cooccurence(word_data, V):
     cooccurence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32, allocator=dev_pool.allocate)
     n_grams = word_data.shape[1]
     length = word_data.shape[0] * n_grams
-    atomic_add(word_data, cooccurence_matrix_gpu, np.int32(V),
-               np.int32(n_grams), np.int32(length),
-               block=(1024, 1, 1), grid=(ceil(length / 1024), 1, 1))
+    # atomic_add(word_data, cooccurence_matrix_gpu, np.int32(V),
+    #            np.int32(n_grams), np.int32(length),
+    #            block=(1024, 1, 1), grid=(ceil(length / 1024), 1, 1))
+    atomic_add.prepared_call((ceil(length / 1024), 1, 1), (1024, 1, 1),
+                             word_data.gpudata, cooccurence_matrix_gpu.gpudata,
+                             np.int32(V),
+                             np.int32(n_grams), np.int32(length)
+                             )
     smooth = 0.5
     # cooccurence_matrix_gpu += smooth
     cooccurence_matrix_gpu = cumath.log(cooccurence_matrix_gpu + smooth)
@@ -320,7 +327,8 @@ def loss(W, W_tilde, b, b_tilde, co_occurence):
     V = co_occurence.shape[0]
     the_loss = matrixMultiWithSum((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
                                   (column_vector_indicator, linalg.transpose(b_tilde)), bias=-co_occurence)
-    matrix_pow(the_loss, np.int32(V * V), block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
+    # matrix_pow(the_loss, np.int32(V * V), block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
+    matrix_pow.prepared_call((ceil(V * V / 1024), 1, 1), (1024, 1, 1), the_loss.gpudata, np.int32(V * V))
     loss_sum = gpuarray.sum(the_loss, dtype=np.float32)
     return loss_sum
 

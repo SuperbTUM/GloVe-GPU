@@ -23,7 +23,7 @@ In the second step, with PyCUDA, the project is expected to achieve more complic
 Overall, we have our baseline as follows:
 
 | Methodology     | naive version with numpy (Intel i7, 4 core) | neural network version with numpy |
-| --------------- | ------------------------------------------- | --------------------------------- |
+|-----------------|---------------------------------------------|-----------------------------------|
 | Time in seconds | ≥ 56 seconds in 25 epochs                   | ≥ 38 seconds in a single epoch    |
 
 In the second step, in addition to what we should have done in the first step, we need to make full use of shared memory to do reduction since there is a SoftMax operation. The core implementation will focus on parallelization of forward propagation of the network.
@@ -32,7 +32,14 @@ Overall, the project will concentrate on matrix-to-matrix calculation, matrix-to
 
 ## Results
 
-We have achieved acceleration of naive GloVe representation. With cuBLAS and streams, the training time is **0.46** seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
+We have achieved acceleration of naive GloVe representation. 
+
+| Methodology | naive version with CUDA | neural network version with CUDA |
+|-------------|-------------------------|----------------------------------|
+| P100        | 0.46 sec (Maybe faster) | 6.38 sec (Maybe faster)          |
+| A40         | 0.31 sec                | 4.64 sec                         |
+
+With cuBLAS and streams, the training time is **0.46** seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
 
 We also have achieved acceleration of neural network version of GloVe. The inference time is **6.38** seconds on average, compared with 38 seconds in numpy implementation.
 
@@ -46,8 +53,8 @@ We also have achieved acceleration of neural network version of GloVe. The infer
 ## Environment
 
 - Operating System: Linux 5.4
-- CUDA: 11.3  
-- GPU: Nvidia Tesla P100
+- CUDA: 11.3 (or 11.6+) 
+- GPU: Nvidia Tesla P100 / RTX A40
 
 ## Installation
 
