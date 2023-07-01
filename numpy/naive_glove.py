@@ -57,7 +57,7 @@ def lr_scheduler(lr, epoch, drop=0.5, epoch_drop=5):
 
 
 def train(W, W_tilde, b, b_tilde, V, shuffle=True):
-    co_occurence_valid = log_cooccurence(data['valid_inputs'], V, symm=False)
+    co_occurrence_valid = log_cooccurence(data['valid_inputs'], V, symm=False)
     learning_rate = 0.05 / V
     momentum = 0.9
     epochs = 25
@@ -70,12 +70,12 @@ def train(W, W_tilde, b, b_tilde, V, shuffle=True):
         for epoch in range(epochs):
             idxs = np.random.permutation(data_inputs.shape[0])
             data_inputs_random = data_inputs[idxs, :]
-            co_occurence_train = log_cooccurence(data_inputs_random, V, symm=False)
+            co_occurrence_train = log_cooccurence(data_inputs_random, V, symm=False)
             learning_rate = lr_scheduler(learning_rate, epoch)
             for m in range(num_batches):
                 data_inputs_batch = data_inputs_random[m * batch_size:(m + 1) * batch_size, :]
-                co_occurence_train_batch = log_cooccurence(data_inputs_batch, V)
-                grad_W, grad_W_tilde, grad_b, grad_b_tilde = grad(W, W_tilde, b, b_tilde, co_occurence_train_batch)
+                co_occurrence_train_batch = log_cooccurence(data_inputs_batch, V)
+                grad_W, grad_W_tilde, grad_b, grad_b_tilde = grad(W, W_tilde, b, b_tilde, co_occurrence_train_batch)
                 step_w = step_w * momentum + learning_rate * grad_W
                 W -= step_w
                 step_w_tilde = step_w_tilde * momentum + learning_rate * grad_W_tilde
@@ -85,10 +85,10 @@ def train(W, W_tilde, b, b_tilde, V, shuffle=True):
                 step_b_tilde = step_b_tilde * momentum + learning_rate * grad_b_tilde
                 b_tilde -= step_b_tilde
 
-            train_loss = loss(W, W_tilde, b, b_tilde, co_occurence_train)
+            train_loss = loss(W, W_tilde, b, b_tilde, co_occurrence_train)
             train_losses.append(train_loss)
 
-            valid_loss = loss(W, W_tilde, b, b_tilde, co_occurence_valid)
+            valid_loss = loss(W, W_tilde, b, b_tilde, co_occurrence_valid)
             valid_losses.append(valid_loss)
     else:
         raise Exception('Training data has to be shuffled!')

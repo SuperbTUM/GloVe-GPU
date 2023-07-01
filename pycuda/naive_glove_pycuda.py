@@ -18,14 +18,14 @@ kernels = SourceModule(
     #include <math.h>
     #define shared_size 1024
     #define TILE_DIM 32
-    __global__ void co_occurrence(const int* __restrict__ grams, float* co_occurence_matrix, int size_corpus, int num_grams, int length){
+    __global__ void co_occurrence(const int* __restrict__ grams, float* co_occurrence_matrix, int size_corpus, int num_grams, int length){
         const int i = threadIdx.x + blockIdx.x * blockDim.x;
         int bias = i/(num_grams-1);
         if(i+bias < length - 1){
             int first_pos = grams[i+bias];
             int second_pos = grams[i+bias+1];
             int add_spot = first_pos * size_corpus + second_pos;
-            atomicAdd(&co_occurence_matrix[add_spot], 1);
+            atomicAdd(&co_occurrence_matrix[add_spot], 1);
         }
 
     }
@@ -135,7 +135,6 @@ def shuffled_metaprogramming(block_size, thread_block_size):
     )
     return SourceModule(rendered_tpl)
 
-dev_pool = DeviceMemoryPool()
 # define global variables
 # define kernels
 shuffled = kernels.get_function("shuffled")
@@ -232,28 +231,29 @@ def load_dataset():
     return data
 
 
-def log_cooccurence(word_data, V):
+def log_cooccurence(word_data, V, cooccurrence_matrix_gpu):
     """
     Counting co-occurrence in corpus
     :param word_data: corpus in dataset
     :param V: number of vocabs
     :return: log co-occurrence matrix
     """
-    cooccurence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32, allocator=dev_pool.allocate)
+    # cooccurrence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32, allocator=dev_pool.allocate)
+    cooccurrence_matrix_gpu.fill(0.)
     n_grams = word_data.shape[1]
     length = word_data.shape[0] * n_grams
     # atomic_add(word_data, cooccurence_matrix_gpu, np.int32(V),
     #            np.int32(n_grams), np.int32(length),
     #            block=(1024, 1, 1), grid=(ceil(length / 1024), 1, 1))
     atomic_add.prepared_call((ceil(length / 1024), 1, 1), (1024, 1, 1),
-                             word_data.gpudata, cooccurence_matrix_gpu.gpudata,
+                             word_data.gpudata, cooccurrence_matrix_gpu.gpudata,
                              np.int32(V),
                              np.int32(n_grams), np.int32(length)
                              )
     smooth = 0.5
     # cooccurence_matrix_gpu += smooth
-    cooccurence_matrix_gpu = cumath.log(cooccurence_matrix_gpu + smooth)
-    return cooccurence_matrix_gpu
+    cooccurrence_matrix_gpu = cumath.log(cooccurrence_matrix_gpu + smooth)
+    return cooccurrence_matrix_gpu
 
 
 def init(V, d):
@@ -351,34 +351,35 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
     """
     word_data = data['valid_inputs'].astype(np.int32)
     word_data_gpu = gpuarray.to_gpu(word_data, allocator=dev_pool.allocate)
-    co_occurence_valid = log_cooccurence(word_data_gpu, V)
+    cooccurrence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32, allocator=dev_pool.allocate)
+    co_occurrence_valid = log_cooccurence(word_data_gpu, V, cooccurrence_matrix_gpu).copy()
     learning_rate = 0.05 / V
     momentum = 0.9
     epochs = 25
     batch_size = 74500
     train_losses, valid_losses = [], []
-    step_w = step_w_tilde = gpuarray.zeros((V, d), dtype=np.float32)
-    step_b = step_b_tilde = gpuarray.zeros((V, 1), dtype=np.float32)
+    step_w = step_w_tilde = gpuarray.zeros((V, d), dtype=np.float32, allocator=dev_pool.allocate)
+    step_b = step_b_tilde = gpuarray.zeros((V, 1), dtype=np.float32, allocator=dev_pool.allocate)
     data_inputs = data['train_inputs'].astype(np.int32)
     nums, width = data_inputs.shape
-    data_inputs = gpuarray.to_gpu(data_inputs)
+    data_inputs = gpuarray.to_gpu(data_inputs, allocator=dev_pool.allocate)
     data_inputs_random = gpuarray.zeros_like(data_inputs)
     num_batches = data_inputs.shape[0] // batch_size
     for epoch in range(epochs):
         idxs = np.random.permutation(data_inputs.shape[0])
-        idxs = gpuarray.to_gpu(idxs)
+        idxs = gpuarray.to_gpu(idxs, allocator=dev_pool.allocate)
         # data_inputs_random = data_inputs[idxs, :]
         shuffled.prepared_call((ceil(data_inputs.shape[0] / 1024), 1, 1), (1024, 1, 1),
                                data_inputs.gpudata, idxs.gpudata, data_inputs_random.gpudata, width, nums)
         # shuffled(data_inputs.gpudata, idxs.gpudata, data_inputs_random.gpudata, data_inputs.shape[1], data_inputs.shape[0],
         #          block=(1024, 1, 1), grid=(ceil(data_inputs.shape[0] / 1024), 1, 1))
         # data_inputs_random = gpuarray.to_gpu(data_inputs_random)
-        co_occurence_train = log_cooccurence(data_inputs_random, V)
+        co_occurrence_train = log_cooccurence(data_inputs_random, V, cooccurrence_matrix_gpu).copy()
         learning_rate = lr_scheduler(learning_rate, epoch)
         for m in range(num_batches):
             data_inputs_batch = data_inputs_random[m * batch_size:(m + 1) * batch_size, :]
-            co_occurence_train_batch = log_cooccurence(data_inputs_batch, V)
-            grad_W, grad_W_tilde, grad_b, grad_b_tilde = grad(W, W_tilde, b, b_tilde, co_occurence_train_batch)
+            co_occurrence_train_batch = log_cooccurence(data_inputs_batch, V, cooccurrence_matrix_gpu).copy()
+            grad_W, grad_W_tilde, grad_b, grad_b_tilde = grad(W, W_tilde, b, b_tilde, co_occurrence_train_batch)
 
             step_w = step_w * momentum + learning_rate * grad_W
             W -= step_w
@@ -389,11 +390,11 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
             step_b_tilde = step_b_tilde * momentum + learning_rate * grad_b_tilde
             b_tilde -= step_b_tilde
 
-        train_loss = loss(W, W_tilde, b, b_tilde, co_occurence_train).get()
-        train_losses.append(train_loss)
+        train_loss = loss(W, W_tilde, b, b_tilde, co_occurrence_train).get()
+        train_losses.append(train_loss.item())
 
-        valid_loss = loss(W, W_tilde, b, b_tilde, co_occurence_valid).get()
-        valid_losses.append(valid_loss)
+        valid_loss = loss(W, W_tilde, b, b_tilde, co_occurrence_valid).get()
+        valid_losses.append(valid_loss.item())
     final_W = W.get_async(stream=streams[0])
     return final_W
 
@@ -415,10 +416,11 @@ if __name__ == '__main__':
     times = 20
     end = 0.
     for _ in range(times):
+        dev_pool = DeviceMemoryPool()
         start = time.monotonic()
         final_W = main(data)
         end += time.monotonic() - start
+        dev_pool.stop_holding()
     print("Average GPU execution time is {:.2f} seconds under {:d} times.".format(end/times, times))  # 0.46 seconds on average of 20 times.
     for h in handles:
         cublas.cublasDestroy(h)
-    dev_pool.stop_holding()

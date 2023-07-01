@@ -37,7 +37,7 @@ We have achieved acceleration of naive GloVe representation.
 | Methodology | naive version with CUDA | neural network version with CUDA |
 |-------------|-------------------------|----------------------------------|
 | P100        | 0.46 sec (Maybe faster) | 6.38 sec (Maybe faster)          |
-| A40         | 0.31 sec                | 4.64 sec                         |
+| A40         | 0.29 sec                | 4.31 sec                         |
 
 With cuBLAS and streams, the training time is **0.46** seconds for 25 epochs, compared with 56 seconds in numpy implementation with same number of epochs.
 

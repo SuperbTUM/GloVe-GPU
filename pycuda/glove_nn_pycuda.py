@@ -438,17 +438,17 @@ class Model(object):
         self.context_length = context_length
         # definition of layers
         self.embedding_layer = gpuarray.zeros((self.batch_size, self.context_length * self.embedding_dim),
-                                              dtype=np.float32)
-        self.hidden_layer_activated = gpuarray.zeros((self.batch_size, self.hidden_dim), dtype=np.float32)
+                                              dtype=np.float32, allocator=dev_pool.allocate)
+        self.hidden_layer_activated = gpuarray.zeros((self.batch_size, self.hidden_dim), dtype=np.float32, allocator=dev_pool.allocate)
 
         # definition of trainable parameters
         embedding_weights = trained["word_embedding_weights"].astype(np.float32)
         self.embedding_weights = cuda.register_host_memory(embedding_weights)
-        self.word_embedding_weights = gpuarray.to_gpu_async(self.embedding_weights, stream=streams[0])
+        self.word_embedding_weights = gpuarray.to_gpu_async(self.embedding_weights, stream=streams[0], allocator=dev_pool.allocate)
 
         hidden_weights = trained['embed_to_hid_weights'].astype(np.float32)
         hidden_weights = cuda.register_host_memory(hidden_weights)
-        self.emb_to_hid_weights = gpuarray.to_gpu_async(hidden_weights, stream=streams[1])
+        self.emb_to_hid_weights = gpuarray.to_gpu_async(hidden_weights, stream=streams[1], allocator=dev_pool.allocate)
 
         hid_bias = trained['hid_bias'].astype(np.float32)
         hid_bias = cuda.register_host_memory(hid_bias)
@@ -456,17 +456,17 @@ class Model(object):
 
         output_weights = trained['hid_to_output_weights'].astype(np.float32)
         output_weights = cuda.register_host_memory(output_weights)
-        self.hid_to_out_weights = gpuarray.to_gpu_async(output_weights, stream=streams[3])
+        self.hid_to_out_weights = gpuarray.to_gpu_async(output_weights, stream=streams[3], allocator=dev_pool.allocate)
 
         output_bias = trained['output_bias'].astype(np.float32)
         output_bias = cuda.register_host_memory(output_bias)
-        self.out_bias = gpuarray.to_gpu_async(output_bias, stream=streams[4])
+        self.out_bias = gpuarray.to_gpu_async(output_bias, stream=streams[4], allocator=dev_pool.allocate)
 
         self.targets_offset = np.repeat((np.arange(context_length) * self.vocab_size)[np.newaxis, :],
                                         batch_size, axis=0).astype(np.int32)
 
         self.target_batch = np.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
-        self.target_batch_gpu = gpuarray.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32)
+        self.target_batch_gpu = gpuarray.zeros((batch_size, context_length * self.vocab_size), dtype=np.float32, allocator=dev_pool.allocate)
 
     def _softmax(self, y):
         """
