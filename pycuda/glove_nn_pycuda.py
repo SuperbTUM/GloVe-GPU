@@ -172,6 +172,18 @@ __global__ void matrix_division_no_reshape(float* high_dim_matrix, float* low_di
     int i = tx + bx * blockDim.x;
     if(i < length)  output[i] = high_dim_matrix[i] / low_dim_matrix[bx];
 }
+
+__global__ void expOp(float* matrix, const int length) {
+    const int i = threadIdx.x + blockIdx.x * blockDim.x;
+    if (i < length)
+        matrix[i] = expf(matrix[i]);
+}
+
+__global__ void logOp(float* matrix, const float offset, const int length) {
+    const int i = threadIdx.x + blockIdx.x * blockDim.x;
+    if (i < length)
+        matrix[i] = logf(matrix[i] + offset);
+}
 """
 )
 
@@ -385,6 +397,10 @@ TRAIN_CONFIG = {"batch_size": 100,
 model_location = 'partially_trained.pk'
 trained = pickle.load(open(model_location, "rb"))
 # load kernel functions
+exp_op = kernels.get_function("expOp")
+exp_op.prepare(("P", "i", ))
+log_op = kernels.get_function("logOp")
+log_op.prepare(("P", "f", "i", ))
 matrix_reduction = kernels.get_function("matrix_reduction")
 matrix_reduction.prepare(("P", "P", ))
 device_reduce_block = kernels.get_function("deviceReduceBlock")
@@ -396,7 +412,7 @@ matrix_addition.prepare(("P", "P", "i", ))
 # matrix_division = kernels.get_function("matrix_division")
 matrix_division_no_reshape = kernels.get_function("matrix_division_no_reshape")
 matrix_division_no_reshape.prepare(("P", "P", "P", "i", ))
-output_divided_matrix = gpuarray.zeros((TRAIN_CONFIG["batch_size"], 1004), dtype=np.float32)
+output_divided_matrix = gpuarray.zeros((TRAIN_CONFIG["batch_size"], 1004), dtype=np.float32, allocator=dev_pool.allocate)
 # define streams for asynchronization
 stream1 = cuda.Stream(flags=1)
 stream2 = cuda.Stream(flags=1)
@@ -474,7 +490,8 @@ class Model(object):
         :param y: output of output layer
         :return: activated output
         """
-        y = cumath.exp(y)
+        # y = cumath.exp(y)
+        exp_op.prepared_call((ceil(np.prod(y.shape) / 1024), 1, 1), (1024, 1, 1), y.gpudata, np.int32(np.prod(y.shape)))
         y = y.reshape((-1, self.context_length, self.vocab_size))
         sum_y = customize_reduction(y)
         y = customize_matrix_division(y, sum_y)
@@ -525,7 +542,10 @@ class Model(object):
         :param output_activated: outputs of the model
         :return: cross entropy loss
         """
-        cross_entropy = -gpuarray.sum(target_batch * cumath.log(output_activated + 1e-5))
+        offset = 1e-5
+        log_op.prepared_call((ceil(np.prod(output_activated.shape) / 1024), 1, 1), (1024, 1, 1),
+                             output_activated.gpudata, np.float32(offset), np.int32(np.prod(output_activated.shape)))
+        cross_entropy = -gpuarray.sum(target_batch * output_activated)
         return cross_entropy
 
     def sample_input_mask(self):

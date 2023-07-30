@@ -4,7 +4,6 @@ from math import ceil
 
 import numpy as np
 import pycuda.autoinit
-import pycuda.cumath as cumath
 import pycuda.driver as cuda
 import pycuda.gpuarray as gpuarray
 from pycuda import curandom
@@ -28,6 +27,12 @@ kernels = SourceModule(
             atomicAdd(&co_occurrence_matrix[add_spot], 1);
         }
 
+    }
+    
+    __global__ void logOp(float* matrix, const float offset, const int length) {
+        const int i = threadIdx.x + blockIdx.x * blockDim.x;
+        if (i < length)
+            matrix[i] = logf(matrix[i] + offset);
     }
 
     __global__ void matrix_add(float* matrix1, float* matrix2, int size){
@@ -141,6 +146,8 @@ shuffled = kernels.get_function("shuffled")
 shuffled.prepare(("P", "P", "P", "i", "i", ))
 atomic_add = kernels.get_function("co_occurrence")
 atomic_add.prepare(("P", "P", "i", "i", "i", ))
+log_op = kernels.get_function("logOp")
+log_op.prepare(("P", "f", "i", ))
 matrix_multi = kernels.get_function("matrix_multi")
 matrix_add = kernels.get_function("matrix_add")
 matrix_pow = kernels.get_function("matrix_pow")
@@ -167,20 +174,6 @@ h4 = cublas.cublasCreate()
 cublas.cublasSetStream(h4, streams[3].handle)
 handles = (h1, h2, h3, h4)
 random_generator = curandom.XORWOWRandomNumberGenerator(curandom.seed_getter_unique)
-# deprecated
-# def matrixMulti(*args):
-#     C_list = list()
-#     for i, (mat1, mat2) in enumerate(args):
-#         ARow, ACol = mat1.shape
-#         BRow, BCol = mat2.shape
-#         CRow, CCol = ARow, BCol
-#         mat3 = gpuarray.zeros(shape=(CRow, CCol), dtype=np.float32)
-#         matrix_multi(mat1, mat2, mat3, np.int32(ARow), np.int32(ACol), np.int32(BRow),
-#                      np.int32(BCol), np.int32(CRow), np.int32(CCol),
-#                      block=(32, 32, 1), grid=(ceil(max(CRow, CCol) / 32), ceil(max(CRow, CCol) / 32), 1),
-#                      stream=streams[i])
-#         C_list.append(mat3)
-#     return C_list
 
 
 def matrixMulti(*args):
@@ -251,8 +244,9 @@ def log_cooccurence(word_data, V, cooccurrence_matrix_gpu):
                              np.int32(n_grams), np.int32(length)
                              )
     smooth = 0.5
-    # cooccurence_matrix_gpu += smooth
-    cooccurrence_matrix_gpu = cumath.log(cooccurrence_matrix_gpu + smooth)
+    # cooccurrence_matrix_gpu = cumath.log(cooccurrence_matrix_gpu + smooth)
+    log_op.prepared_call((ceil(V * V / 1024), 1, 1), (1024, 1, 1),
+                         cooccurrence_matrix_gpu.gpudata, np.float32(smooth), np.int32(V * V))
     return cooccurrence_matrix_gpu
 
 
