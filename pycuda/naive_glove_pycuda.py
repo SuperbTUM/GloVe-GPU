@@ -107,7 +107,7 @@ kernels = SourceModule(
         C[row*CCols+col] = sum;
     }
     
-    __global__ void shuffled(float* inputs, int* indices, float* outputs, const int width, const int nums) {
+    __global__ void shuffled(const int* inputs, const int* indices, int* outputs, const int width, const int nums) {
         const int idx = threadIdx.x + blockIdx.x * blockDim.x;
         if(idx < nums) {
             for(int offset = 0; offset < width; ++offset) {
@@ -158,11 +158,25 @@ stream2 = cuda.Stream(flags=1)
 stream3 = cuda.Stream(flags=1)
 stream4 = cuda.Stream(flags=1)
 streams = (stream1, stream2, stream3, stream4)
+dev_pool = DeviceMemoryPool()
 V = 251
 linalg.init()
 # define indicator
 row_vector_indicator = gpuarray.GPUArray(shape=(1, V), dtype=np.float32).fill(1, stream=streams[0])
 column_vector_indicator = gpuarray.GPUArray(shape=(V, 1), dtype=np.float32).fill(1, stream=streams[1])
+streams[0].synchronize()
+streams[1].synchronize()
+
+
+def ensure_indicators(V_size):
+    global row_vector_indicator, column_vector_indicator
+    if row_vector_indicator is None or row_vector_indicator.shape[1] != V_size:
+        row_vector_indicator = gpuarray.GPUArray(shape=(1, V_size), dtype=np.float32).fill(1, stream=streams[0])
+        column_vector_indicator = gpuarray.GPUArray(shape=(V_size, 1), dtype=np.float32).fill(1, stream=streams[1])
+        streams[0].synchronize()
+        streams[1].synchronize()
+
+
 # define handles for cublas
 h1 = cublas.cublasCreate()
 cublas.cublasSetStream(h1, streams[0].handle)
@@ -257,6 +271,7 @@ def init(V, d):
     :param d: number of embedded dims, default: 10
     :return: initial weight and bias matrix
     """
+    ensure_indicators(V)
     base = 0.1
     # experimental
     # W = base * np.random.normal(size=(V, d)).astype(np.float32)
@@ -283,6 +298,9 @@ def init(V, d):
     # b_tilde.base.unregister()
     b_tilde_gpu = base * random_generator.gen_normal((V, 1), dtype="float32", stream=streams[3])
 
+    for s in streams:
+        s.synchronize()
+
     return W_gpu, W_tilde_gpu, b_gpu, b_tilde_gpu
 
 
@@ -296,15 +314,25 @@ def grad(W, W_tilde, b, b_tilde, co_occurence):
     :param co_occurence: the co-occurrence matrix
     :return: the gradient of each parameter
     """
+    V = co_occurence.shape[0]
+    ensure_indicators(V)
+    bias = -co_occurence
+    cuda.Context.synchronize()
     the_loss = matrixMultiWithSum((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
-                                  (column_vector_indicator, linalg.transpose(b_tilde)), bias=-co_occurence)
-    grad_W, grad_W_tilde, grad_b = matrixMulti((the_loss, W_tilde), (linalg.transpose(the_loss), W),
+                                  (column_vector_indicator, linalg.transpose(b_tilde)), bias=bias)
+    streams[0].synchronize()
+    the_loss_T = linalg.transpose(the_loss)
+    cuda.Context.synchronize()
+    grad_W, grad_W_tilde, grad_b = matrixMulti((the_loss, W_tilde), (the_loss_T, W),
                                                 (row_vector_indicator, the_loss))
+    for s in streams[:3]:
+        s.synchronize()
     # grad_b_tilde = grad_b
     grad_W = 2 * grad_W
     grad_W_tilde = 2 * grad_W_tilde
     grad_b = 2 * linalg.transpose(grad_b)
     # grad_b_tilde = 2 * linalg.transpose(grad_b_tilde)
+    cuda.Context.synchronize()
     return grad_W, grad_W_tilde, grad_b, grad_b
 
 
@@ -319,8 +347,12 @@ def loss(W, W_tilde, b, b_tilde, co_occurence):
     :return: mean squared loss
     """
     V = co_occurence.shape[0]
+    ensure_indicators(V)
+    bias = -co_occurence
+    cuda.Context.synchronize()
     the_loss = matrixMultiWithSum((W, linalg.transpose(W_tilde)), (b, row_vector_indicator),
-                                  (column_vector_indicator, linalg.transpose(b_tilde)), bias=-co_occurence)
+                                  (column_vector_indicator, linalg.transpose(b_tilde)), bias=bias)
+    streams[0].synchronize()
     # matrix_pow(the_loss, np.int32(V * V), block=(1024, 1, 1), grid=(ceil(V * V / 1024), 1, 1))
     matrix_pow.prepared_call((ceil(V * V / 1024), 1, 1), (1024, 1, 1), the_loss.gpudata, np.int32(V * V))
     loss_sum = gpuarray.sum(the_loss, dtype=np.float32)
@@ -343,6 +375,7 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
     :param data: corpus of the dataset
     :return: final weights of words
     """
+    ensure_indicators(V)
     word_data = data['valid_inputs'].astype(np.int32)
     word_data_gpu = gpuarray.to_gpu(word_data, allocator=dev_pool.allocate)
     cooccurrence_matrix_gpu = gpuarray.zeros((V, V), dtype=np.float32, allocator=dev_pool.allocate)
@@ -352,19 +385,22 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
     epochs = 25
     batch_size = 74500
     train_losses, valid_losses = [], []
-    step_w = step_w_tilde = gpuarray.zeros((V, d), dtype=np.float32, allocator=dev_pool.allocate)
-    step_b = step_b_tilde = gpuarray.zeros((V, 1), dtype=np.float32, allocator=dev_pool.allocate)
+    step_w = gpuarray.zeros((V, d), dtype=np.float32, allocator=dev_pool.allocate)
+    step_w_tilde = gpuarray.zeros((V, d), dtype=np.float32, allocator=dev_pool.allocate)
+    step_b = gpuarray.zeros((V, 1), dtype=np.float32, allocator=dev_pool.allocate)
+    step_b_tilde = gpuarray.zeros((V, 1), dtype=np.float32, allocator=dev_pool.allocate)
     data_inputs = data['train_inputs'].astype(np.int32)
     nums, width = data_inputs.shape
     data_inputs = gpuarray.to_gpu(data_inputs, allocator=dev_pool.allocate)
     data_inputs_random = gpuarray.zeros_like(data_inputs)
     num_batches = data_inputs.shape[0] // batch_size
     for epoch in range(epochs):
-        idxs = np.random.permutation(data_inputs.shape[0])
+        idxs = np.random.permutation(data_inputs.shape[0]).astype(np.int32)
         idxs = gpuarray.to_gpu(idxs, allocator=dev_pool.allocate)
         # data_inputs_random = data_inputs[idxs, :]
         shuffled.prepared_call((ceil(data_inputs.shape[0] / 1024), 1, 1), (1024, 1, 1),
                                data_inputs.gpudata, idxs.gpudata, data_inputs_random.gpudata, width, nums)
+        cuda.Context.synchronize()
         # shuffled(data_inputs.gpudata, idxs.gpudata, data_inputs_random.gpudata, data_inputs.shape[1], data_inputs.shape[0],
         #          block=(1024, 1, 1), grid=(ceil(data_inputs.shape[0] / 1024), 1, 1))
         # data_inputs_random = gpuarray.to_gpu(data_inputs_random)
@@ -389,7 +425,7 @@ def train(W, W_tilde, b, b_tilde, V, d, data):
 
         valid_loss = loss(W, W_tilde, b, b_tilde, co_occurrence_valid).get()
         valid_losses.append(valid_loss.item())
-    final_W = W.get_async(stream=streams[0])
+    final_W = W.get()
     return final_W
 
 

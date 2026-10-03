@@ -16,142 +16,80 @@ except ImportError:
 
 kernels = SourceModule(
     """
-# define warpSize 32
-# define MAX_BLOCK 512
-
-__inline__ __device__
-float fake_shfl_down(float val, int offset, int width=32) {
-  static __shared__ float shared[MAX_BLOCK];
-  int lane=threadIdx.x%32;
-
-  shared[threadIdx.x]=val;
-  __syncthreads();
-
-  val = (lane+offset<width) ? shared[threadIdx.x+offset] : 0;
-  __syncthreads();
-
-  return val;
-}
+#define warpSize 32
 
 __inline__ __device__
 float warpReduceSum(float val) {
-  for (int offset = warpSize/2; offset > 0; offset /= 2) 
-    val += fake_shfl_down(val, offset);
-  return val;
+    for (int offset = 16; offset > 0; offset /= 2)
+        val += __shfl_down_sync(0xffffffff, val, offset);
+    return val;
 }
 
 __inline__ __device__
 float blockReduceSum(float val) {
+    static __shared__ float shared[32];
+    int lane = threadIdx.x % warpSize;
+    int wid = threadIdx.x / warpSize;
 
-  static __shared__ float shared[32]; // Shared mem for 32 partial sums
-  int lane = threadIdx.x % warpSize;
-  int wid = threadIdx.x / warpSize;
+    val = warpReduceSum(val);
 
-  val = warpReduceSum(val);     // Each warp performs partial reduction
+    if (lane == 0) shared[wid] = val;
 
-  if (lane==0) shared[wid]=val; // Write reduced value to shared memory
+    __syncthreads();
 
-  __syncthreads();              // Wait for all partial reductions
+    val = (threadIdx.x < (blockDim.x / warpSize)) ? shared[lane] : 0.0f;
 
-  //read from shared memory only if that warp existed
-  val = (threadIdx.x < blockDim.x / warpSize) ? shared[lane] : 0.0;
+    if (wid == 0) val = warpReduceSum(val);
 
-  if (wid==0) val = warpReduceSum(val); //Final reduce within first warp
-
-  return val;
+    return val;
 }
 
 __global__ void deviceReduceBlock(float *in, float* out) {
-  float sum = in[threadIdx.x];
-  sum = blockReduceSum(sum);
-  if (threadIdx.x == 0)
-    out[blockIdx.x] = sum;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    float sum = in[idx];
+    sum = blockReduceSum(sum);
+    if (threadIdx.x == 0)
+        out[blockIdx.x] = sum;
 }
 
-__inline__
-__device__ void warpReduce(volatile float* vector, int tid){
-    // avoid syncthread
-    if(blockDim.x >= 64) vector[tid] += vector[tid+32];
-    if(blockDim.x >= 32) vector[tid] += vector[tid+16];
-    if(blockDim.x >= 16) vector[tid] += vector[tid+8];
-    if(blockDim.x >= 8) vector[tid] += vector[tid+4];
-    if(blockDim.x >= 4) vector[tid] += vector[tid+2];
-    if(blockDim.x >= 2) vector[tid] += vector[tid+1];
-} 
-
-__global__ void matrix_reduction(float* matrix, float* reduction_matrix){
-    int tid = threadIdx.x;
-    int bid = blockIdx.x;
-    int i = tid + bid * blockDim.x * 2;
-    __shared__ float vector[128];
-    vector[tid] = matrix[i] + matrix[i+blockDim.x];
-    __syncthreads();
-    // __syncwarp();
-    if(blockDim.x >= 1024){
-        if(tid < 512)  vector[tid] += vector[tid + 512];
-        __syncthreads();
-        // __syncwarp();
+__inline__ __device__
+float warpReduceMax(float val) {
+    for (int offset = 16; offset > 0; offset /= 2) {
+        float other = __shfl_down_sync(0xffffffff, val, offset);
+        val = (val > other) ? val : other;
     }
-    if(blockDim.x >= 512){
-        if(tid < 256)  vector[tid] += vector[tid + 256];
-        __syncthreads(); 
-        // __syncwarp();
-    }
-    if(blockDim.x >= 256){
-        if(tid < 128)  vector[tid] += vector[tid + 128];
-        __syncthreads();
-        // __syncwarp();
-    }
-    if(blockDim.x >= 128){
-        if(tid < 64)  vector[tid] += vector[tid + 64];
-        __syncthreads();
-        // __syncwarp();
-    }
-    if(tid < 32)  warpReduce(vector, tid);
-    if(tid == 0)  reduction_matrix[bid] = vector[0];
+    return val;
 }
-
-__device__ void warpMax(volatile float* vector, int tid){
-    if(blockDim.x >= 64) vector[tid] = (vector[tid] > vector[tid+32])? vector[tid]: vector[tid+32];
-    if(blockDim.x >= 32) vector[tid] = (vector[tid] > vector[tid+16])? vector[tid]: vector[tid+16];
-    if(blockDim.x >= 16) vector[tid] = (vector[tid] > vector[tid+8])? vector[tid]: vector[tid+8];
-    if(blockDim.x >= 8) vector[tid] = (vector[tid] > vector[tid+4])? vector[tid]: vector[tid+4];
-    if(blockDim.x >= 4) vector[tid] = (vector[tid] > vector[tid+2])? vector[tid]: vector[tid+2];
-    if(blockDim.x >= 2) vector[tid] = (vector[tid] > vector[tid+1])? vector[tid]: vector[tid+1];
-} 
 
 __global__ void find_max(float* matrix, float* outputs){
     int tid = threadIdx.x;
     int bid = blockIdx.x;
     int i = tid + bid * blockDim.x * 2;
     __shared__ float vector[512];
-    vector[tid] = (matrix[i] > matrix[i+blockDim.x])? matrix[i]: matrix[i+blockDim.x];
+    vector[tid] = (matrix[i] > matrix[i + blockDim.x]) ? matrix[i] : matrix[i + blockDim.x];
     __syncthreads();
-    // __syncwarp();
-    if(blockDim.x >= 1024){
-        if(tid < 512)  vector[tid] = (vector[tid] > vector[tid+512])? vector[tid]: vector[tid+512];
-        __syncthreads();
-        // __syncwarp();
-    }
+
     if(blockDim.x >= 512){
-        if(tid < 256)  vector[tid] = (vector[tid] > vector[tid+256])? vector[tid]: vector[tid+256];
-        __syncthreads();
-        // __syncwarp();
+        if(tid < 256)  vector[tid] = (vector[tid] > vector[tid + 256]) ? vector[tid] : vector[tid + 256];
+        __syncthreads(); 
     }
     if(blockDim.x >= 256){
-        if(tid < 128)  vector[tid] = (vector[tid] > vector[tid+128])? vector[tid]: vector[tid+128];
+        if(tid < 128)  vector[tid] = (vector[tid] > vector[tid + 128]) ? vector[tid] : vector[tid + 128];
         __syncthreads(); 
-        // __syncwarp();
     }
     if(blockDim.x >= 128){
-        if(tid < 64)  vector[tid] = (vector[tid] > vector[tid+64])? vector[tid]: vector[tid+64];
-        __syncthreads();
-        // __syncwarp();
+        if(tid < 64)  vector[tid] = (vector[tid] > vector[tid + 64]) ? vector[tid] : vector[tid + 64];
+        __syncthreads(); 
     }
-    if(tid < 32)  warpMax(vector, tid);
-    if(tid == 0)  outputs[bid] = vector[0];    
+    if(tid < 32) {
+        vector[tid] = (vector[tid] > vector[tid + 32]) ? vector[tid] : vector[tid + 32];
+        __syncwarp();
+        float m = warpReduceMax(vector[tid]);
+        if(tid == 0) outputs[bid] = m;
+    }
 }
 
+// Row-wise addition: matrix[row, col] += vector[row] (used for subtracting row max)
 __global__ void matrix_addition(float* matrix, const float* __restrict__ vector, int length){
     int bx = blockIdx.x;
     int tx = threadIdx.x;
@@ -159,7 +97,15 @@ __global__ void matrix_addition(float* matrix, const float* __restrict__ vector,
     if(i < length)  matrix[i] += vector[bx];
 }
 
-__global__ void matrix_division(float* matrix_higher, const  float* __restrict__ matrix_lower, int length){
+// Column-wise addition: matrix[row, col] += bias[col] (used for layer bias addition)
+__global__ void matrix_col_addition(float* matrix, const float* __restrict__ bias, int cols, int length){
+    int bx = blockIdx.x;
+    int tx = threadIdx.x;
+    int i = bx * cols + tx;
+    if(i < length && tx < cols)  matrix[i] += bias[tx];
+}
+
+__global__ void matrix_division(float* matrix_higher, const float* __restrict__ matrix_lower, int length){
     int tx = threadIdx.x;
     int bx = blockIdx.x;
     int i = tx + bx * blockDim.x;
@@ -279,6 +225,7 @@ def customize_max_finder(matrix):
     """
     # This matrix is of shape (B, NV)
     padding = gpuarray.zeros((matrix.shape[0], 1024 - matrix.shape[-1]), dtype=np.float32, allocator=dev_pool.allocate)
+    padding.fill(np.float32(-1e30))
     padded_matrix = concatenate((matrix, padding), axis=1, allocator=dev_pool.allocate)
     results = gpuarray.zeros((matrix.shape[0],), dtype=np.float32, allocator=dev_pool.allocate)
     # find_max.prepare(("P", "P", ))
@@ -289,15 +236,25 @@ def customize_max_finder(matrix):
 
 def customize_matrix_add(matrix, vector):
     """
-    This function is designed to do addition of two matrices with different dims (broadcast)
+    This function is designed to do addition of two matrices with different dims (broadcast row vector across columns)
     :param matrix: higher level matrix, normally in shape (*, dim)
     :param vector: lower level vector, normally in shape (*, )
     :return: the addition result in shape of (*, dim)
     """
-    # matrix_addition.prepare(("P", "P", "i", ))
     matrix_addition.prepared_call((matrix.shape[0], 1, 1), (matrix.shape[1], 1, 1),
-    matrix.gpudata, vector.gpudata, np.int32(matrix.size))
-    # matrix_addition(matrix, vector, np.int32(matrix.size), block=(matrix.shape[1], 1, 1), grid=(matrix.shape[0], 1, 1))
+                                  matrix.gpudata, vector.gpudata, np.int32(matrix.size))
+    return matrix
+
+
+def customize_bias_add(matrix, bias):
+    """
+    This function is designed to add a column bias vector to a 2D matrix (broadcasting across rows)
+    :param matrix: 2D matrix in shape (rows, cols)
+    :param bias: column bias vector in shape (cols,)
+    :return: matrix with bias added: matrix[r, c] += bias[c]
+    """
+    matrix_col_addition.prepared_call((matrix.shape[0], 1, 1), (matrix.shape[1], 1, 1),
+                                      matrix.gpudata, bias.gpudata, np.int32(matrix.shape[1]), np.int32(matrix.size))
     return matrix
 
 
@@ -308,15 +265,9 @@ def customize_matrix_division(matrix_higher, matrix_lower):
     :param matrix_lower: lower level matrix, normally in shape (*, )
     :return: division result in shape of (*, dim)
     """
-    # matrix_division(matrix_higher, matrix_lower, np.int32(matrix_higher.size), block=(matrix_higher.shape[-1], 1, 1),
-    #                 grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
-    # matrix_division_no_reshape.prepare(("P", "P", "P", "i", ))
     matrix_division_no_reshape.prepared_call((matrix_higher.size // matrix_higher.shape[-1], 1, 1),
-                                   (matrix_higher.shape[-1], 1, 1),
-                                   matrix_higher.gpudata, matrix_lower.gpudata, output_divided_matrix.gpudata, np.int32(matrix_higher.size))
-    # matrix_division_no_reshape(matrix_higher, matrix_lower, output_divided_matrix, np.int32(matrix_higher.size),
-    #                            block=(matrix_higher.shape[-1], 1, 1),
-    #                            grid=(matrix_higher.size // matrix_higher.shape[-1], 1, 1))
+                                             (matrix_higher.shape[-1], 1, 1),
+                                             matrix_higher.gpudata, matrix_lower.gpudata, output_divided_matrix.gpudata, np.int32(matrix_higher.size))
     return output_divided_matrix
 
 
@@ -351,7 +302,7 @@ def skcudaDot(mat1, mat2, transb="N"):
     return linalg.dot(mat1, mat2, transb=transb, handle=handle)
 
 
-def copy_non_contiguous(dst, src):
+def copy_non_contiguous(dst, src, col_offset=0):
     """
     Copy ``src`` array to ``dst`` array.
     A gpu-array may have a non contiguous block of memory,
@@ -377,7 +328,7 @@ def copy_non_contiguous(dst, src):
 
         for col in range(src.shape[1]):
             copy.src_x_in_bytes = col * itemsize
-            copy.dst_x_in_bytes = col * dst.strides[1]
+            copy.dst_x_in_bytes = (col_offset + col) * dst.strides[1]
             copy(aligned=False)
     else:
         # both arrays have a contiguous block of memory for each row
@@ -385,6 +336,7 @@ def copy_non_contiguous(dst, src):
         copy.dst_pitch = dst.strides[0]
         copy.width_in_bytes = itemsize * src.shape[1]
         copy.height = src.shape[0]
+        copy.dst_x_in_bytes = col_offset * itemsize
         copy(aligned=False)
 
 
@@ -401,17 +353,16 @@ exp_op = kernels.get_function("expOp")
 exp_op.prepare(("P", "i", ))
 log_op = kernels.get_function("logOp")
 log_op.prepare(("P", "f", "i", ))
-matrix_reduction = kernels.get_function("matrix_reduction")
-matrix_reduction.prepare(("P", "P", ))
-device_reduce_block = kernels.get_function("deviceReduceBlock")
-device_reduce_block.prepare(("P", "P", ))
 find_max = kernels.get_function("find_max")
 find_max.prepare(("P", "P", ))
 matrix_addition = kernels.get_function("matrix_addition")
 matrix_addition.prepare(("P", "P", "i", ))
-# matrix_division = kernels.get_function("matrix_division")
+matrix_col_addition = kernels.get_function("matrix_col_addition")
+matrix_col_addition.prepare(("P", "P", "i", "i", ))
 matrix_division_no_reshape = kernels.get_function("matrix_division_no_reshape")
 matrix_division_no_reshape.prepare(("P", "P", "P", "i", ))
+device_reduce_block = kernels.get_function("deviceReduceBlock")
+device_reduce_block.prepare(("P", "P", ))
 output_divided_matrix = gpuarray.zeros((TRAIN_CONFIG["batch_size"], 1004), dtype=np.float32, allocator=dev_pool.allocate)
 # define streams for asynchronization
 stream1 = cuda.Stream(flags=1)
@@ -468,7 +419,7 @@ class Model(object):
 
         hid_bias = trained['hid_bias'].astype(np.float32)
         hid_bias = cuda.register_host_memory(hid_bias)
-        self.hid_bias = gpuarray.to_gpu_async(hid_bias, stream=streams[2])
+        self.hid_bias = gpuarray.to_gpu_async(hid_bias, stream=streams[2], allocator=dev_pool.allocate)
 
         output_weights = trained['hid_to_output_weights'].astype(np.float32)
         output_weights = cuda.register_host_memory(output_weights)
@@ -477,6 +428,10 @@ class Model(object):
         output_bias = trained['output_bias'].astype(np.float32)
         output_bias = cuda.register_host_memory(output_bias)
         self.out_bias = gpuarray.to_gpu_async(output_bias, stream=streams[4], allocator=dev_pool.allocate)
+
+        # Synchronize streams so all weights are on device before inference starts
+        for s in streams:
+            s.synchronize()
 
         self.targets_offset = np.repeat((np.arange(context_length) * self.vocab_size)[np.newaxis, :],
                                         batch_size, axis=0).astype(np.int32)
@@ -503,17 +458,15 @@ class Model(object):
         :param batch_data: masked inputs
         :return: final weights
         """
-        # word_embedding_weights_cpu = self.word_embedding_weights.get()
         for i in range(self.context_length):
-            # self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim] = \
-            #     gpuarray.to_gpu(self.embedding_weights[batch_data[:, i], :])  # NEEDS MORE WORK
             copy_non_contiguous(self.embedding_layer[:, i * self.embedding_dim:(i + 1) * self.embedding_dim],
-                                self.embedding_weights[batch_data[:, i], :])
-        hidden_layer = customize_matrix_add(skcudaDot(self.embedding_layer, self.emb_to_hid_weights, "T"),
-                                            self.hid_bias)  # (B, Nd) @ (Nd, H) -> (B, H)
+                                self.embedding_weights[batch_data[:, i], :],
+                                col_offset=i * self.embedding_dim)
+        hidden_layer = customize_bias_add(skcudaDot(self.embedding_layer, self.emb_to_hid_weights, "T"),
+                                          self.hid_bias)  # (B, Nd) @ (Nd, H) + (H,) -> (B, H)
         self.hidden_layer_activated = logistic(hidden_layer)
-        output_layer = customize_matrix_add(skcudaDot(self.hidden_layer_activated, self.hid_to_out_weights, "T"),
-                                            self.out_bias)  # (B, H) @ (H, NV) -> (B, NV)
+        output_layer = customize_bias_add(skcudaDot(self.hidden_layer_activated, self.hid_to_out_weights, "T"),
+                                          self.out_bias)  # (B, H) @ (H, NV) + (NV,) -> (B, NV)
         max_output_layer = customize_max_finder(output_layer)
         output_layer = customize_matrix_add(output_layer, -max_output_layer)
         output_layer_activated = self._softmax(output_layer)
@@ -527,9 +480,9 @@ class Model(object):
         :return: ground truth of loss function
         """
         self.target_batch[:] = 0
-        batch_data += self.targets_offset
+        target_indices = batch_data + self.targets_offset
         for c in range(self.context_length):
-            self.target_batch[np.arange(self.batch_size), batch_data[:, c]] = 1.
+            self.target_batch[np.arange(self.batch_size), target_indices[:, c]] = 1.
             if mask_zero:
                 self.target_batch[np.arange(self.batch_size), self.targets_offset[:, c]] = 0.
         copy_non_contiguous(self.target_batch_gpu, self.target_batch)
@@ -542,10 +495,8 @@ class Model(object):
         :param output_activated: outputs of the model
         :return: cross entropy loss
         """
-        offset = 1e-5
-        log_op.prepared_call((ceil(np.prod(output_activated.shape) / 1024), 1, 1), (1024, 1, 1),
-                             output_activated.gpudata, np.float32(offset), np.int32(np.prod(output_activated.shape)))
-        cross_entropy = -gpuarray.sum(target_batch * output_activated)
+        offset = 1e-6
+        cross_entropy = -gpuarray.sum(target_batch * cumath.log(output_activated + np.float32(offset)))
         return cross_entropy
 
     def sample_input_mask(self):
@@ -581,7 +532,7 @@ def inference():
         # forward
         output_activated = model.forward(input_batch_masked)
         # calculate cross entropy loss
-        batch_loss = model.compute_loss(model.target_batch_gpu, output_activated) / batch_size
+        batch_loss = float(model.compute_loss(model.target_batch_gpu, output_activated).get()) / batch_size
         train_loss += batch_loss
     return train_loss / num_batches
 
@@ -591,8 +542,9 @@ if __name__ == "__main__":
     start = time.time()
     for i in range(times):
         train_loss = inference()
+    cuda.Context.synchronize()
     end = time.time()
+    print("Inference CE loss: {:.4f}".format(train_loss))
     print("GPU execution time is {:.2f} seconds on average of {} attempts.".format((end - start)/times, times))
-    # 7.81 seconds, loss: 3.85
     cublas.cublasDestroy(handle)
     dev_pool.stop_holding()
